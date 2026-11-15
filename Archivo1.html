@@ -1,0 +1,3739 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARES-PATH | Navegacion Tactica A* y Telemetria en Marte</title>
+
+    <!-- Libreria de estilos del mapa 2D (Leaflet) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        /* ==========================================
+           ESTILOS DE LA CORTINILLA (SPLASH SCREEN)
+           ========================================== */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000000;
+            /* Fondo negro absoluto para ocultar todo */
+            z-index: 99999;
+            /* Por encima del mapa, globo y paneles */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.6s ease, visibility 0.6s ease;
+            font-family: 'Courier New', Courier, monospace;
+            color: #f0f0f0;
+            user-select: none;
+        }
+
+        #splash-screen.oculto {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .splash-content {
+            text-align: center;
+            max-width: 460px;
+            padding: 20px;
+        }
+
+        .splash-logo {
+            width: 100%;
+            max-width: 400px;
+            height: auto;
+            margin-bottom: 30px;
+            animation: pulse-logo 3s ease-in-out infinite;
+            filter: drop-shadow(0 0 15px rgba(255, 85, 0, 0.45));
+        }
+
+        /* Linea de carga animada (Loader) */
+        .loader-container {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .loader-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff4400, #ff8800);
+            border-radius: 2px;
+            animation: fill-loader 2.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+
+        .splash-status {
+            font-size: 11px;
+            color: #ffaa66;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            animation: blink-text 1.5s infinite;
+        }
+
+        .splash-sub {
+            font-size: 8px;
+            color: #666666;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* Animaciones para la carga */
+        @keyframes fill-loader {
+            0% {
+                width: 0%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        @keyframes pulse-logo {
+
+            0%,
+            100% {
+                transform: scale(1);
+                filter: drop-shadow(0 0 15px rgba(255, 85, 0, 0.4));
+            }
+
+            50% {
+                transform: scale(1.02);
+                filter: drop-shadow(0 0 25px rgba(255, 85, 0, 0.7));
+            }
+        }
+
+        @keyframes blink-text {
+
+            0%,
+            100% {
+                opacity: 0.65;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050508;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            color: #f0f0f0;
+            user-select: none;
+        }
+
+        /* ==========================================
+           CONTENEDOR DEL GLOBO 3D (VISTA ORBITAL)
+           ========================================== */
+        #globo-3d {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            z-index: 20;
+            background: radial-gradient(circle at center, #120603 0%, #030306 75%);
+            transition: opacity 0.9s ease-in-out, transform 0.9s ease-in-out;
+            cursor: grab;
+        }
+
+        #globo-3d:active {
+            cursor: grabbing;
+        }
+
+        #globo-3d.oculto {
+            opacity: 0;
+            transform: scale(1.45);
+            pointer-events: none;
+        }
+
+        /* ==========================================
+           CONTENEDOR DEL MAPA 2D (LEAFLET EPSG:4326 MARS TREK)
+           ========================================== */
+        #mapa {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            height: 100dvh;
+            width: 100vw;
+            z-index: 10;
+            background-color: #050508;
+        }
+
+        .leaflet-tile-pane {
+            filter: contrast(1.06) saturate(1.08) brightness(0.98);
+        }
+
+        .leaflet-container {
+            background: #060405 !important;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        /* ==========================================
+           BOTONES DE TORMENTA DE ARENA RANDOM
+           ========================================== */
+        .grupo-botones-tormenta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .btn-tormenta {
+            background: rgba(255, 30, 30, 0.2);
+            color: #ff4d4d;
+            border: 1px solid #ff3333;
+            padding: 8px 8px;
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.25s;
+        }
+
+        .btn-tormenta:hover,
+        .btn-tormenta.activa {
+            background: #ff1a1a;
+            color: #ffffff;
+            box-shadow: 0 0 15px #ff0000;
+        }
+
+        .btn-limpiar-tormenta {
+            background: rgba(255, 255, 255, 0.08);
+            color: #cccccc;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 8px;
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.25s;
+        }
+
+        .btn-limpiar-tormenta:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+        }
+
+        /* ==========================================
+           CONTENEDOR BOTON (+) Y PANEL IZQUIERDO RUTA DE VIDA
+           ========================================== */
+        .contenedor-waze-toggle {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1100;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            pointer-events: none;
+        }
+
+        .btn-circulo-mas-waze {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: rgba(12, 6, 4, 0.92);
+            border: 2px solid #ff5500;
+            color: #ff5500;
+            font-size: 30px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(255, 85, 0, 0.5);
+            backdrop-filter: blur(6px);
+            transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s, color 0.2s;
+            pointer-events: auto;
+            margin-bottom: 12px;
+        }
+
+        .btn-circulo-mas-waze:hover {
+            background: #ff5500;
+            color: #000000;
+            box-shadow: 0 0 24px rgba(255, 85, 0, 0.9);
+        }
+
+        .btn-circulo-mas-waze.abierto {
+            transform: rotate(45deg);
+            background: #ff5500;
+            color: #000000;
+        }
+
+        .panel-waze {
+            width: 375px;
+            max-height: calc(100vh - 105px);
+            overflow-y: auto;
+            background: linear-gradient(165deg, rgba(16, 8, 6, 0.92), rgba(8, 5, 7, 0.95));
+            border: 1px solid rgba(255, 95, 20, 0.78);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.88), inset 0 1px 0 rgba(255, 165, 90, 0.2), 0 0 18px rgba(255, 85, 0, 0.22);
+            backdrop-filter: blur(12px);
+            transform-origin: top left;
+            transition: transform 0.28s ease, opacity 0.28s ease;
+            pointer-events: auto;
+        }
+
+        .panel-waze.cerrado {
+            transform: scale(0.85) translateY(-12px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .panel-waze::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .panel-waze::-webkit-scrollbar-thumb {
+            background: #ff5500;
+            border-radius: 3px;
+        }
+
+        .panel-titulo {
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff5500;
+            border-bottom: 1px solid rgba(255, 85, 0, 0.4);
+            padding-bottom: 8px;
+            margin: 0 0 12px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-cerrar-pestana {
+            background: rgba(255, 85, 0, 0.15);
+            border: 1px solid #ff5500;
+            color: #ff5500;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-cerrar-pestana:hover {
+            background: #ff5500;
+            color: #000000;
+        }
+
+        .sub-etiqueta {
+            font-size: 11px;
+            color: #00ffff;
+            text-transform: uppercase;
+            margin: 10px 0 5px 0;
+            letter-spacing: 0.5px;
+            display: block;
+        }
+
+        .select-marciano,
+        .input-marciano {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 85, 0, 0.55);
+            color: #ffffff;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 12px;
+            margin-bottom: 6px;
+            outline: none;
+        }
+
+        .select-marciano option {
+            background: #140804;
+            color: #ffffff;
+        }
+
+        .select-marciano:focus,
+        .input-marciano:focus {
+            border-color: #00ffff;
+            box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+        }
+
+        .fila-biometria {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .caja-dato {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            padding: 7px 9px;
+            font-size: 11px;
+        }
+
+        .caja-dato strong {
+            display: block;
+            color: #ffaa44;
+            font-size: 10px;
+            margin-bottom: 3px;
+        }
+
+        .caja-dato span {
+            font-size: 12px;
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        .btn-accion-waze {
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px;
+            background: linear-gradient(90deg, #ff5500, #ff8800);
+            color: #000000;
+            border: none;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+
+        .btn-accion-waze:hover {
+            filter: brightness(1.15);
+            box-shadow: 0 0 15px rgba(255, 110, 0, 0.8);
+        }
+
+        .btn-secundario-waze {
+            width: 100%;
+            margin-top: 6px;
+            padding: 8px;
+            background: rgba(0, 212, 255, 0.15);
+            color: #00ffff;
+            border: 1px solid #00d4ff;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-secundario-waze:hover {
+            background: #00d4ff;
+            color: #000000;
+        }
+
+        .info-recorrido-box {
+            margin-top: 10px;
+            padding: 9px;
+            border-radius: 6px;
+            background: rgba(0, 40, 55, 0.75);
+            border: 1px solid #00d4ff;
+            color: #d8f8ff;
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        .alerta-tormenta-box {
+            margin-top: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(255, 140, 0, 0.15);
+            border: 1px solid #ff9900;
+            color: #ffcc66;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .alerta-tormenta-box.peligro-critico {
+            background: rgba(255, 0, 0, 0.22);
+            border-color: #ff2222;
+            color: #ff9999;
+        }
+
+        .ficha-bd-box {
+            margin-top: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 170, 68, 0.4);
+            color: #dddddd;
+            font-size: 10px;
+            line-height: 1.38;
+        }
+
+        /* ==========================================
+           PANEL DERECHO: HUD SISTEMA VITAL OCULTABLE
+           ========================================== */
+        .contenedor-hud-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1100;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            pointer-events: none;
+        }
+
+        .btn-toggle-hud {
+            height: 38px;
+            padding: 0 14px;
+            border-radius: 20px;
+            background: rgba(20, 4, 0, 0.92);
+            border: 1.5px solid #ff5500;
+            color: #ff5500;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(255, 85, 0, 0.45);
+            backdrop-filter: blur(6px);
+            transition: all 0.25s ease;
+            pointer-events: auto;
+            margin-bottom: 10px;
+        }
+
+        .btn-toggle-hud:hover {
+            background: #ff5500;
+            color: #000000;
+            box-shadow: 0 0 20px rgba(255, 85, 0, 0.85);
+        }
+
+        .panel-supervivencia {
+            width: 335px;
+            max-height: calc(100vh - 85px);
+            overflow-y: auto;
+            background: linear-gradient(165deg, rgba(22, 7, 4, 0.90), rgba(10, 4, 5, 0.94));
+            color: #ff5500;
+            padding: 16px;
+            border: 1px solid rgba(255, 95, 20, 0.8);
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 145, 75, 0.2), 0 0 20px rgba(255, 85, 0, 0.28);
+            backdrop-filter: blur(12px);
+            transform-origin: top right;
+            transition: transform 0.28s ease, opacity 0.28s ease, border-color 0.3s, box-shadow 0.3s, background 0.3s;
+            pointer-events: auto;
+        }
+
+        .panel-supervivencia.cerrado {
+            transform: scale(0.85) translateY(-12px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .panel-supervivencia.alerta-hud {
+            border-color: #ff0000;
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.9);
+            background: rgba(65, 0, 0, 0.92);
+        }
+
+        .panel-supervivencia.precaucion-hud {
+            border-color: #ffaa00;
+            box-shadow: 0 0 25px rgba(255, 170, 0, 0.85);
+            background: rgba(55, 30, 0, 0.92);
+        }
+
+        .panel-supervivencia h2 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            border-bottom: 1px solid currentColor;
+            padding-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .barra-vital-wrap {
+            margin-bottom: 8px;
+        }
+
+        .barra-vital-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #ffffff;
+            margin-bottom: 3px;
+        }
+
+        .barra-vital-fondo {
+            width: 100%;
+            height: 7px;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .barra-vital-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.15s linear, background-color 0.25s ease;
+        }
+
+        @keyframes parpadeoReserva {
+
+            0%,
+            100% {
+                opacity: 1;
+                background: rgba(255, 0, 40, 0.92);
+                box-shadow: 0 0 18px rgba(255, 0, 40, 0.95), inset 0 0 8px rgba(255, 200, 0, 0.6);
+                border-color: #ffcc00;
+            }
+
+            50% {
+                opacity: 0.28;
+                background: rgba(120, 0, 15, 0.75);
+                box-shadow: 0 0 4px rgba(255, 0, 40, 0.4);
+                border-color: #ff2244;
+            }
+        }
+
+        .alerta-reserva-box {
+            display: none;
+            margin: 8px 0;
+            padding: 7px 10px;
+            border: 2px solid #ffcc00;
+            border-radius: 5px;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            animation: parpadeoReserva 0.75s infinite ease-in-out;
+        }
+
+        .alerta-reserva-box.activa {
+            display: block;
+        }
+
+        .badge-reserva-astro {
+            display: none;
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            background: rgba(255, 0, 35, 0.95);
+            color: #ffff00;
+            border: 1.5px solid #ffff00;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            pointer-events: none;
+            z-index: 2000;
+            animation: parpadeoReserva 0.75s infinite ease-in-out;
+        }
+
+        .badge-reserva-astro.activa {
+            display: block;
+        }
+
+        .btn-hud {
+            margin-top: 10px;
+            width: 100%;
+            padding: 9px;
+            background: rgba(255, 85, 0, 0.18);
+            color: #ff5500;
+            border: 1px solid #ff5500;
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .btn-hud:hover {
+            background: #ff5500;
+            color: black;
+            box-shadow: 0 0 10px #ff5500;
+        }
+
+        /* Firma inferior estilo Mars Trek */
+        .marca-trek {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 30;
+            color: #ffffff;
+            background: rgba(10, 6, 5, 0.78);
+            padding: 7px 18px;
+            border-radius: 22px;
+            border: 1px solid rgba(255, 95, 25, 0.5);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            letter-spacing: 1px;
+            pointer-events: none;
+            opacity: 0.94;
+            transition: opacity 0.5s ease;
+        }
+
+        .marca-trek span {
+            color: #ff5500;
+            font-weight: bold;
+        }
+
+        /* Barra inferior NASA Mars Trek para el Mapa 2D (Coordenadas, Zoom y Capa Realista) */
+        .barra-telemetria-trek {
+            position: fixed;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1050;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(10, 6, 5, 0.86);
+            border: 1px solid rgba(255, 95, 25, 0.5);
+            border-radius: 24px;
+            padding: 5px 14px;
+            color: #e8dfd8;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.8), 0 0 14px rgba(255, 85, 0, 0.16);
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+            white-space: nowrap;
+        }
+
+        .barra-telemetria-trek.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .trek-coords {
+            color: #00e5ff;
+            font-weight: bold;
+            letter-spacing: 0.4px;
+        }
+
+        .trek-sep {
+            color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-trek-mini {
+            background: rgba(255, 85, 0, 0.16);
+            border: 1px solid rgba(255, 95, 25, 0.55);
+            color: #ffbb88;
+            border-radius: 14px;
+            padding: 3px 9px;
+            font-family: inherit;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .btn-trek-mini:hover,
+        .btn-trek-mini.activo {
+            background: #ff5500;
+            color: #050508;
+            border-color: #ff8833;
+            box-shadow: 0 0 10px rgba(255, 85, 0, 0.5);
+        }
+
+        /* ==========================================
+           ETIQUETAS PERSONALIZADAS Y NOMENCLATURA ZOOM
+           ========================================== */
+        .nomenclatura-label-2d {
+            pointer-events: none;
+            white-space: nowrap;
+            text-align: center;
+            font-family: 'Trebuchet MS', Arial, sans-serif;
+            color: rgba(255, 236, 214, 0.88);
+            text-shadow: 0 0 4px #000000, 0 0 8px #000000, 1px 1px 2px #000000;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            transition: opacity 0.25s ease;
+        }
+
+        .nomenclatura-label-2d.macro {
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 214, 165, 0.82);
+            letter-spacing: 2.2px;
+        }
+
+        .nomenclatura-label-2d.medio {
+            font-size: 10px;
+            font-weight: 600;
+            color: rgba(240, 245, 255, 0.85);
+            letter-spacing: 1.1px;
+        }
+
+        .nomenclatura-label-2d.detalle {
+            font-size: 9.5px;
+            font-weight: 500;
+            color: rgba(205, 240, 255, 0.86);
+            letter-spacing: 0.6px;
+            text-transform: none;
+        }
+
+        .nomenclatura-tipo-sub {
+            display: block;
+            font-size: 7.5px;
+            color: rgba(255, 180, 120, 0.72);
+            letter-spacing: 0.5px;
+            margin-top: -1px;
+        }
+
+        @media (max-width: 760px) {
+            .barra-telemetria-trek {
+                bottom: 8px;
+                padding: 4px 10px;
+                gap: 6px;
+                font-size: 9.5px;
+                max-width: calc(100vw - 16px);
+                overflow-x: auto;
+            }
+
+            .btn-trek-mini {
+                padding: 2px 7px;
+                font-size: 9px;
+            }
+        }
+
+        /* ==========================================
+           ETIQUETAS PERSONALIZADAS EN EL MAPA
+           ========================================== */
+        .pin-lugar-seguro {
+            background: rgba(6, 28, 24, 0.88);
+            border: 1.5px solid #00ffaa;
+            color: #ffffff;
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 0 8px rgba(0, 255, 170, 0.35);
+        }
+
+        .pin-lugar-peligroso {
+            background: rgba(25, 14, 10, 0.78);
+            border: 1px solid rgba(255, 130, 80, 0.45);
+            color: rgba(255, 220, 200, 0.88);
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .pin-tormenta {
+            background: rgba(45, 10, 25, 0.78);
+            border: 1px solid rgba(255, 80, 140, 0.45);
+            color: rgba(255, 210, 230, 0.85);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        /* ==========================================
+           ASTRONAUTA SVG ANIMADO EN EL MAPA
+           ========================================== */
+        .astronauta-contenedor {
+            width: 64px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .astronauta-svg {
+            width: 64px;
+            height: 64px;
+            overflow: visible;
+            filter: drop-shadow(0 5px 6px rgba(0, 0, 0, 0.9));
+            transition: transform 0.15s ease;
+        }
+
+        .astronauta-svg.mirar-izquierda {
+            transform: scaleX(-1);
+        }
+
+        .astronauta-svg.caminando .astro-cuerpo {
+            animation: salto-marte 0.25s infinite alternate ease-in-out;
+        }
+
+        .astronauta-svg.caminando .pierna-izq {
+            transform-origin: 28px 44px;
+            animation: paso-izq 0.25s infinite alternate ease-in-out;
+        }
+
+        .astronauta-svg.caminando .pierna-der {
+            transform-origin: 36px 44px;
+            animation: paso-der 0.25s infinite alternate ease-in-out;
+        }
+
+        .fuego-propulsor {
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .astronauta-svg.caminando .fuego-propulsor {
+            opacity: 1;
+            animation: llama 0.12s infinite alternate;
+        }
+
+        @keyframes salto-marte {
+            0% {
+                transform: translateY(0px);
+            }
+
+            100% {
+                transform: translateY(-5px);
+            }
+        }
+
+        @keyframes paso-izq {
+            0% {
+                transform: rotate(-22deg);
+            }
+
+            100% {
+                transform: rotate(22deg);
+            }
+        }
+
+        @keyframes paso-der {
+            0% {
+                transform: rotate(22deg);
+            }
+
+            100% {
+                transform: rotate(-22deg);
+            }
+        }
+
+        @keyframes llama {
+            0% {
+                transform: scaleY(0.8);
+            }
+
+            100% {
+                transform: scaleY(1.25);
+            }
+        }
+
+        .astronauta-contenedor.en-peligro .astronauta-svg {
+            animation: alerta-roja-astro 0.35s infinite alternate;
+        }
+
+        .astronauta-contenedor.en-peligro .overlay-peligro {
+            animation: parpadeo-capa-roja 0.35s infinite alternate;
+        }
+
+        @keyframes alerta-roja-astro {
+            0% {
+                filter: drop-shadow(0 0 6px #ff0000);
+            }
+
+            100% {
+                filter: drop-shadow(0 0 18px #ff0000) brightness(1.2);
+            }
+        }
+
+        @keyframes parpadeo-capa-roja {
+            0% {
+                opacity: 0;
+            }
+
+            100% {
+                opacity: 0.75;
+            }
+        }
+
+        #overlay-tormenta {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 900;
+            background: radial-gradient(circle, transparent 40%, rgba(255, 45, 0, 0.38) 100%);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        #overlay-tormenta.activo {
+            opacity: 1;
+            animation: pulso-tormenta 1.2s infinite alternate;
+        }
+
+        @keyframes pulso-tormenta {
+            0% {
+                opacity: 0.55;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        /* ==========================================
+           DISENO RESPONSIVO MULTIDISPOSITIVO
+           (TELEFONO, TABLET, LAPTOP Y TELEVISION / 4K)
+           ========================================== */
+        /* 1. TELEVISIONES Y MONITORES GRANDES (Full HD Grande / 2K / 4K) */
+        @media (min-width: 1800px) {
+            .contenedor-waze-toggle {
+                top: 28px;
+                left: 28px;
+            }
+
+            .contenedor-hud-toggle {
+                top: 28px;
+                right: 28px;
+            }
+
+            .btn-circulo-mas-waze {
+                width: 66px;
+                height: 66px;
+                font-size: 36px;
+            }
+
+            .btn-toggle-hud {
+                height: 46px;
+                padding: 0 20px;
+                font-size: 13px;
+            }
+
+            .panel-waze {
+                width: 450px;
+                padding: 22px;
+                border-radius: 14px;
+            }
+
+            .panel-supervivencia {
+                width: 410px;
+                padding: 22px;
+                border-radius: 14px;
+            }
+
+            .panel-titulo,
+            .panel-supervivencia h2 {
+                font-size: 18px;
+            }
+
+            .sub-etiqueta,
+            .barra-vital-label,
+            .btn-hud,
+            .btn-secundario-waze {
+                font-size: 13px;
+            }
+
+            .select-marciano,
+            .input-marciano,
+            .btn-accion-waze {
+                font-size: 14px;
+                padding: 11px 13px;
+            }
+
+            .caja-dato strong {
+                font-size: 11px;
+            }
+
+            .caja-dato span {
+                font-size: 14px;
+            }
+
+            .marca-trek {
+                font-size: 16px;
+                padding: 9px 24px;
+                bottom: 24px;
+            }
+        }
+
+        @media (min-width: 2400px) {
+            .panel-waze {
+                width: 560px;
+                padding: 28px;
+            }
+
+            .panel-supervivencia {
+                width: 500px;
+                padding: 28px;
+            }
+
+            .btn-circulo-mas-waze {
+                width: 78px;
+                height: 78px;
+                font-size: 42px;
+            }
+
+            .btn-toggle-hud {
+                height: 54px;
+                font-size: 15px;
+            }
+
+            .panel-titulo,
+            .panel-supervivencia h2 {
+                font-size: 21px;
+            }
+
+            .select-marciano,
+            .input-marciano,
+            .btn-accion-waze {
+                font-size: 16px;
+                padding: 14px 16px;
+            }
+
+            .marca-trek {
+                font-size: 20px;
+                padding: 12px 30px;
+            }
+        }
+
+        /* 2. TABLETS Y LAPTOPS COMPACTAS (hasta 1024px) */
+        @media (max-width: 1024px) {
+            .contenedor-waze-toggle {
+                top: 14px;
+                left: 14px;
+            }
+
+            .contenedor-hud-toggle {
+                top: 14px;
+                right: 14px;
+            }
+
+            .btn-circulo-mas-waze {
+                width: 46px;
+                height: 46px;
+                font-size: 26px;
+                margin-bottom: 8px;
+            }
+
+            .btn-toggle-hud {
+                height: 34px;
+                padding: 0 12px;
+                font-size: 10px;
+                margin-bottom: 8px;
+            }
+
+            .panel-waze {
+                width: 310px;
+                max-height: calc(100dvh - 85px);
+                padding: 13px;
+            }
+
+            .panel-supervivencia {
+                width: 285px;
+                max-height: calc(100dvh - 75px);
+                padding: 13px;
+            }
+
+            .marca-trek {
+                font-size: 11px;
+                padding: 5px 12px;
+                bottom: 12px;
+                max-width: calc(100vw - 30px);
+                text-align: center;
+            }
+        }
+
+        /* 3. TELEFONOS MOVILES (hasta 680px) */
+        @media (max-width: 680px) {
+            .contenedor-waze-toggle {
+                top: 10px;
+                left: 10px;
+                max-width: calc(100vw - 20px);
+            }
+
+            .contenedor-hud-toggle {
+                top: 10px;
+                right: 10px;
+                max-width: calc(100vw - 20px);
+            }
+
+            .btn-circulo-mas-waze {
+                width: 42px;
+                height: 42px;
+                font-size: 24px;
+                margin-bottom: 6px;
+            }
+
+            .btn-toggle-hud {
+                height: 36px;
+                padding: 0 11px;
+                font-size: 10px;
+                margin-bottom: 6px;
+            }
+
+            .panel-waze,
+            .panel-supervivencia {
+                width: calc(100vw - 20px);
+                max-width: 350px;
+                max-height: calc(100dvh - 74px);
+                padding: 12px;
+            }
+
+            .panel-titulo,
+            .panel-supervivencia h2 {
+                font-size: 13px;
+            }
+
+            .select-marciano,
+            .input-marciano {
+                padding: 7px 8px;
+                font-size: 11px;
+            }
+
+            .btn-accion-waze {
+                padding: 9px;
+                font-size: 11px;
+            }
+
+            .marca-trek {
+                font-size: 10px;
+                padding: 4px 10px;
+                bottom: 8px;
+                width: calc(100vw - 20px);
+                white-space: normal;
+                line-height: 1.3;
+            }
+
+            .pin-lugar-seguro,
+            .pin-lugar-peligroso {
+                font-size: 9px;
+                padding: 2px 5px;
+            }
+        }
+
+        /* 4. PANTALLAS DE BAJA ALTURA (Movil en horizontal / Landscape) */
+        @media (max-height: 540px) {
+
+            .panel-waze,
+            .panel-supervivencia {
+                max-height: calc(100dvh - 64px);
+                padding: 10px;
+            }
+
+            .sub-etiqueta {
+                margin: 6px 0 3px 0;
+            }
+
+            .marca-trek {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Cortinilla de carga estilo Word / HORIZON.exe -->
+    <div id="splash-screen">
+        <div class="splash-content">
+            <img src="horizon_logo.png" alt="HORIZON Logo" class="splash-logo">
+            <div class="loader-container">
+                <div class="loader-bar"></div>
+            </div>
+            <div id="splash-status" class="splash-status">Iniciando HORIZON.exe...</div>
+            <div class="splash-sub">ARES-PATH Tactical Telemetry - Mars Hackaton</div>
+        </div>
+    </div>
+
+    <div id="overlay-tormenta"></div>
+
+    <!-- =====================================================
+             BOTON CIRCULAR (+) + PANEL IZQUIERDO: MOTOR A* Y BD
+             ===================================================== -->
+    <div class="contenedor-waze-toggle">
+        <!-- CAMBIO AQUÍ: Quítale la clase 'abierto' al botón -->
+        <button id="btn-mas-waze" class="btn-circulo-mas-waze" onclick="togglePanelWaze()"
+            title="Abrir / Cerrar Panel de Navegacion">+</button>
+
+        <!-- CAMBIO AQUÍ: Agrégale la clase 'cerrado' al panel -->
+        <div id="panel-waze" class="panel-waze cerrado">
+            <div class="panel-titulo">
+                <span>NAVEGACION A* Y TELEMETRIA BD</span>
+                <button class="btn-cerrar-pestana" onclick="togglePanelWaze()" title="Cerrar pestana">X</button>
+            </div>
+            <!-- Seleccion de las 4 ubicaciones oficiales de la BD -->
+            <label class="sub-etiqueta">1. Punto de Inicio (Punto A)</label>
+            <select id="select-origen" class="select-marciano" onchange="alCambiarOrigen()"></select>
+
+            <label class="sub-etiqueta">2. Objetivo (Punto B)</label>
+            <select id="select-destino" class="select-marciano" onchange="actualizarRutaWaze(false)"></select>
+
+            <!-- Parametros del Astronauta (Valores base MEIS: 80 kg corporal + 65 kg traje PLSS) -->
+            <label class="sub-etiqueta">3. Biometria EVA y Traje PLSS (MEIS)</label>
+            <div class="fila-biometria">
+                <div class="caja-dato">
+                    <strong>MASA CORPORAL (KG)</strong>
+                    <input id="input-peso" type="number" class="input-marciano" value="80" min="40" max="150"
+                        style="margin:0; padding:4px 6px;" onchange="actualizarRutaWaze(false)">
+                </div>
+                <div class="caja-dato">
+                    <strong>TRAJE + PLSS (KG)</strong>
+                    <input id="input-carga" type="number" class="input-marciano" value="65" min="20" max="120"
+                        style="margin:0; padding:4px 6px;" onchange="actualizarRutaWaze(false)">
+                </div>
+            </div>
+
+            <!-- Control de Velocidad del Astronauta (km por cada 1 segundo) -->
+            <label class="sub-etiqueta">4. Velocidad de Avance (KM por 1 Segundo)</label>
+            <div class="fila-biometria">
+                <div class="caja-dato">
+                    <strong>KM POR 1 SEGUNDO</strong>
+                    <input id="input-velocidad-km" type="number" class="input-marciano" value="100" min="10" max="2000"
+                        step="10" style="margin:0; padding:4px 6px;" onchange="actualizarRutaWaze(false)">
+                </div>
+                <div class="caja-dato">
+                    <strong>TIEMPO ANIMACION</strong>
+                    <span id="dato-tiempo-anim">-- seg</span>
+                </div>
+            </div>
+
+            <!-- Botones de accion A* -->
+            <button class="btn-accion-waze" onclick="iniciarViajeWaze(false)">
+                EJECUTAR A* E INICIAR RECORRIDO
+            </button>
+            <button class="btn-secundario-waze" onclick="intercambiarOrigenDestino()">
+                INVERTIR PUNTO A / PUNTO B
+            </button>
+        </div>
+    </div>
+
+    <!-- =====================================================
+        PANEL DERECHO OCULTABLE: SISTEMA VITAL MEIS-PLSS
+        ===================================================== -->
+    <div class="contenedor-hud-toggle">
+        <!-- CAMBIO AQUÍ: Cambia el texto inicial a 'MOSTRAR SISTEMA VITAL' -->
+        <button id="btn-toggle-hud" class="btn-toggle-hud" onclick="togglePanelHud()"
+            title="Esconder / Mostrar Sistema Vital">
+            MOSTRAR SISTEMA VITAL
+        </button>
+
+        <!-- CAMBIO AQUÍ: Agrégale la clase 'cerrado' al panel -->
+        <div id="hud" class="panel-supervivencia cerrado">
+            <h2>
+                <span>SISTEMA VITAL PLSS</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="estado-vista" style="color: #00ffff; font-size: 11px;">ORBITA 3D</span>
+                    <button class="btn-cerrar-pestana" onclick="togglePanelHud()" title="Esconder panel">X</button>
+                </div>
+            </h2>
+
+            <!-- Barras de Oxigeno (MEIS Weir + Fuga PLSS: 950 g cap) y Energia Electrica PLSS (1100 Wh_e cap) -->
+            <div class="barra-vital-wrap">
+                <div class="barra-vital-label">
+                    <span>Oxigeno EVA (Cap. 950 g | 83.8 g/h)</span>
+                    <strong id="txt-oxigeno">100% (950 g / 665.5 L)</strong>
+                </div>
+                <div class="barra-vital-fondo">
+                    <div id="bar-oxigeno" class="barra-vital-fill" style="width: 100%; background: #00ffcc;"></div>
+                </div>
+            </div>
+
+            <div class="barra-vital-wrap">
+                <div class="barra-vital-label">
+                    <span>Energia PLSS (Cap. 1100 Wh_e | 95 W_e)</span>
+                    <strong id="txt-energia">100% (1100 Wh_e)</strong>
+                </div>
+                <div class="barra-vital-fondo">
+                    <div id="bar-energia" class="barra-vital-fill" style="width: 100%; background: #00d4ff;"></div>
+                </div>
+            </div>
+
+            <div id="alerta-reserva-hud" class="alerta-reserva-box">
+                ESTAS EN RESERVA - SOPORTE DE EMERGENCIA ACTIVO
+            </div>
+
+            <p id="txt-radiacion" style="margin: 6px 0; font-size: 11px; color: #ffaa44;">MEIS: 192 W_th | 101 W_e | O2:
+                56.6 g/h | Vel: 0.00 m/s</p>
+            <p id="txt-zona" style="margin: 6px 0; font-size: 11px; color: #00ffaa;">Ubicacion: ARCADIA PLANITIA
+                (REFUGIO SEGURO - 100%)</p>
+            <p id="txt-hitbox-activo" style="margin: 6px 0; font-size: 11px; color: #00ffff;">Hitbox: DESPEJADO</p>
+
+            <button id="btn-alternar" class="btn-hud" onclick="alternarVista()"> IR A MAPA TACTICO 2D </button>
+        </div>
+    </div>
+
+    <!-- Etiqueta inferior estilo Mars Trek -->
+    <div id="marca-trek" class="marca-trek">
+        <span>MARS</span>ARES-PATH - HAZ CLIC O ZOOM EN EL PLANETA
+    </div>
+
+    <!-- Barra inferior Mars Trek para Vista 2D (Coordenadas en vivo, Capas y Zoom) -->
+    <div id="barra-telemetria-trek" class="barra-telemetria-trek">
+        <span id="trek-coords-live" class="trek-coords">LAT 8.00 | LON -36.50 | Z 2.0</span>
+        <span class="trek-sep">|</span>
+        <button id="btn-capa-viking" class="btn-trek-mini activo" onclick="cambiarCapaBaseTrek('viking')">VIKING
+            REALISTA</button>
+        <button id="btn-capa-mola" class="btn-trek-mini" onclick="cambiarCapaBaseTrek('mola')">MOLA RELIEVE</button>
+        <button id="btn-nomenclatura-toggle" class="btn-trek-mini activo" onclick="toggleNomenclaturaMapa()">NOMBRES:
+            ON</button>
+        <span class="trek-sep">|</span>
+        <button class="btn-trek-mini" onclick="map.zoomIn(0.5)" title="Acercar">+</button>
+        <button class="btn-trek-mini" onclick="map.zoomOut(0.5)" title="Alejar">-</button>
+    </div>
+
+    <!-- Vista 1: Globo 3D de Marte -->
+    <div id="globo-3d"></div>
+
+    <!-- Vista 2: Mapa 2D Tactico (Leaflet) -->
+    <div id="mapa"></div>
+
+    <!-- Librerias: Three.js + Globe.gl y Leaflet -->
+    <script src="https://unpkg.com/three"></script>
+    <script src="https://unpkg.com/globe.gl"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        function togglePanelWaze() {
+            const panel = document.getElementById('panel-waze');
+            const btn = document.getElementById('btn-mas-waze');
+            const hud = document.getElementById('hud');
+            const btnHud = document.getElementById('btn-toggle-hud');
+
+            panel.classList.toggle('cerrado');
+            btn.classList.toggle('abierto');
+
+            // En telefonos moviles, al abrir el panel izquierdo se cierra el derecho para no encimarse
+            if (window.innerWidth <= 680 && !panel.classList.contains('cerrado') && hud && !hud.classList.contains('cerrado')) {
+                hud.classList.add('cerrado');
+                if (btnHud) btnHud.innerText = ' MOSTRAR SISTEMA VITAL ';
+            }
+        }
+
+        function togglePanelHud() {
+            const hud = document.getElementById('hud');
+            const btn = document.getElementById('btn-toggle-hud');
+            const panelWaze = document.getElementById('panel-waze');
+            const btnWaze = document.getElementById('btn-mas-waze');
+
+            hud.classList.toggle('cerrado');
+            const estaCerrado = hud.classList.contains('cerrado');
+            btn.innerText = estaCerrado ? ' MOSTRAR SISTEMA VITAL ' : ' ESCONDER SISTEMA VITAL ';
+
+            // En telefonos moviles, al abrir el panel derecho se cierra el izquierdo para no encimarse
+            if (window.innerWidth <= 680 && !estaCerrado && panelWaze && !panelWaze.classList.contains('cerrado')) {
+                panelWaze.classList.add('cerrado');
+                if (btnWaze) btnWaze.classList.remove('abierto');
+            }
+        }
+
+        // =====================================================================
+        // SECCION 1: BASE DE DATOS OFICIAL SINCRONIZADA CON motor_astar.py
+        // =====================================================================
+
+        let UBICACIONES_PRINCIPALES = [
+            {
+                id_ubicacion: "arcadia_planitia",
+                nombre: "Arcadia Planitia",
+                subregion: "Planicie central",
+                clasificacion_excel: "Zona segura (campamento)",
+                tipo_zona: "segura",
+                es_refugio: true,
+                lat_central: 47.19124055,
+                lon_central: -175.6891,
+                diametro_km: 1871.97,
+                temperatura_valor_k: 200.0,
+                presion_valor_pa: 840.0,
+                elevacion_valor_m: -3800.0,
+                pendiente_valor_grados: 0.3,
+                polvo_clase: "moderate_to_high_northern_storm_track",
+                prob_peligro_base: 0.03
+            },
+            {
+                id_ubicacion: "amazonis_planitia",
+                nombre: "Amazonis Planitia",
+                subregion: "Planicie volcanica septentrional de baja pendiente",
+                clasificacion_excel: "Zona segura (campamento)",
+                tipo_zona: "segura",
+                es_refugio: true,
+                lat_central: 25.74613806,
+                lon_central: -162.9128,
+                diametro_km: 2809.04,
+                temperatura_valor_k: 202.0,
+                presion_valor_pa: 780.0,
+                elevacion_valor_m: -3700.0,
+                pendiente_valor_grados: 0.25,
+                polvo_clase: "low_to_moderate_volcanic_plains",
+                prob_peligro_base: 0.03
+            },
+            {
+                id_ubicacion: "meridiani_planum",
+                nombre: "Meridiani Planum",
+                subregion: "Llanura ecuatorial de hematita (Opportunity Landing Site)",
+                clasificacion_excel: "Zona segura de exploracion",
+                tipo_zona: "segura",
+                es_refugio: true,
+                lat_central: -0.040874744,
+                lon_central: -3.1399,
+                diametro_km: 1058.53,
+                temperatura_valor_k: 215.0,
+                presion_valor_pa: 720.0,
+                elevacion_valor_m: -1400.0,
+                pendiente_valor_grados: 0.4,
+                polvo_clase: "moderate_equatorial_hematite_plains",
+                prob_peligro_base: 0.04
+            },
+            {
+                id_ubicacion: "utopia_planitia",
+                nombre: "Utopia Planitia",
+                subregion: "Cuenca media-norte",
+                clasificacion_excel: "Zona de exploracion",
+                tipo_zona: "segura",
+                es_refugio: true,
+                lat_central: 46.73628499,
+                lon_central: 117.5168,
+                diametro_km: 3560.45,
+                temperatura_valor_k: 200.0,
+                presion_valor_pa: 880.0,
+                elevacion_valor_m: -4300.0,
+                pendiente_valor_grados: 0.3,
+                polvo_clase: "high_seasonal_utopia_storm_track",
+                prob_peligro_base: 0.05
+            },
+            {
+                id_ubicacion: "olympus_mons",
+                nombre: "Olympus Mons",
+                subregion: "Escarpe basal, flancos de escudo y calderas somitales (Base / Laderas / Cima)",
+                clasificacion_excel: "Zona montanosa",
+                tipo_zona: "peligrosa",
+                es_refugio: false,
+                lat_central: 18.40196418,
+                lon_central: -133.5645,
+                diametro_km: 1914.77,
+                temperatura_valor_k: 190.0,
+                presion_valor_pa: 560.0,
+                elevacion_valor_m: 250.0,
+                pendiente_valor_grados: 20.0,
+                polvo_clase: "moderate_orographic_base_circulation_and_dust_mantle",
+                prob_peligro_base: 0.82
+            },
+            {
+                id_ubicacion: "hellas_planitia",
+                nombre: "Hellas Planitia",
+                subregion: "Piso interior de la cuenca",
+                clasificacion_excel: "Zona peligrosa",
+                tipo_zona: "peligrosa",
+                es_refugio: false,
+                lat_central: -42.43011121,
+                lon_central: 70.5025,
+                diametro_km: 2299.16,
+                temperatura_valor_k: 205.0,
+                presion_valor_pa: 1050.0,
+                elevacion_valor_m: -7152.0,
+                pendiente_valor_grados: 0.8,
+                polvo_clase: "critical_primary_dust_source_and_optical_trap",
+                prob_peligro_base: 0.88
+            }
+        ];
+
+        // Zonas seguras auxiliares (vacio porque Amazonis Planitia y Meridiani Planum ya son destinos principales)
+        let ZONAS_SEGURAS_AUXILIARES = [];
+
+        // Zonas peligrosas a evitar ("Esquivar") y de precaucion ("Precaucion") para el metodo A*
+        let ZONAS_OBSTACULOS = [
+            {
+                id_obstaculo: "lycus_sulci",
+                nombre: "Lycus Sulci",
+                lat_central: 28.14044343,
+                lon_central: -144.4701,
+                diametro_km: 1350.61,
+                tipo_riesgo: "Zona deslaves (slope streaks y polvo fino DCI < 0.93)",
+                accion_requerida: "Precaucion",
+                temperatura_valor_k: 200.0,
+                presion_valor_pa: 670.0,
+                pendiente_regional_grados: 4.0,
+                pendiente_estimada_grados: 15.0,
+                factor_terreno_eta: 1.8,
+                prob_accidente: 0.65
+            },
+            {
+                id_obstaculo: "erebus_montes",
+                nombre: "Erebus Montes",
+                lat_central: 35.66126179,
+                lon_central: -174.9771,
+                diametro_km: 811.667,
+                tipo_riesgo: "Zona montanosa",
+                accion_requerida: "Esquivar",
+                pendiente_estimada_grados: 22.0,
+                prob_accidente: 0.92
+            },
+            {
+                id_obstaculo: "acheron_fossae",
+                nombre: "Acheron Fossae",
+                lat_central: 38.27416563,
+                lon_central: -135.0238,
+                diametro_km: 703.111,
+                tipo_riesgo: "Zona de fracturas (escarpes graben y horst)",
+                accion_requerida: "Precaucion",
+                temperatura_valor_k: 195.0,
+                presion_valor_pa: 580.0,
+                pendiente_regional_grados: 5.5,
+                pendiente_estimada_grados: 20.0,
+                factor_terreno_eta: 1.8,
+                prob_accidente: 0.68
+            },
+            {
+                id_obstaculo: "olympus_mons_obstaculo",
+                nombre: "Olympus Mons",
+                lat_central: 18.40196418,
+                lon_central: -133.5645,
+                diametro_km: 1914.77,
+                tipo_riesgo: "Zona montanosa",
+                accion_requerida: "Esquivar",
+                pendiente_estimada_grados: 20.0,
+                prob_accidente: 0.95
+            },
+            {
+                id_obstaculo: "hellas_planitia_obstaculo",
+                nombre: "Hellas Planitia",
+                lat_central: -42.43011121,
+                lon_central: 70.5025,
+                diametro_km: 2299.16,
+                tipo_riesgo: "Zona peligrosa",
+                accion_requerida: "Esquivar",
+                pendiente_estimada_grados: 18.0,
+                prob_accidente: 0.90
+            },
+            {
+                id_obstaculo: "valles_marineris",
+                nombre: "Valles Marineris",
+                lat_central: -14.00586857,
+                lon_central: -58.5877,
+                diametro_km: 3761.28,
+                tipo_riesgo: "Zona peligrosa",
+                accion_requerida: "Esquivar",
+                pendiente_estimada_grados: 25.0,
+                prob_accidente: 0.94
+            },
+            {
+                id_obstaculo: "noctis_labyrinthus",
+                nombre: "Noctis Labyrinthus",
+                lat_central: -6.362483392,
+                lon_central: -101.1889,
+                diametro_km: 1190.31,
+                tipo_riesgo: "Zona peligrosa",
+                accion_requerida: "Esquivar",
+                pendiente_estimada_grados: 22.0,
+                prob_accidente: 0.91
+            }
+        ];
+
+        let PARAMETROS_ATMOSFERICOS = {
+            gravedad_marte_ms2: 3.71,
+            gamma_g: 0.3783,
+            factor_locomocion_fg: 0.6892,
+            factor_rigidez_traje_k_suit: 1.5,
+            velocidad_base_v0_ms: 0.85,
+            constante_calorimetrica_c_o2: 0.2527,
+            tasa_fuga_traje_o2_gh: 8.0,
+            potencia_elec_base_plss_we: 95.0,
+            prob_tormenta_arena_base: 0.14,
+            prob_tormenta_emergencia: 0.88
+        };
+
+        let NOMENCLATURA_MARTE = [["Terra Cimmeria", -32.6795, 147.7458, 5855.87, "Terra"], ["Noachis Terra", -50.4072, -5.1567, 5519.45, "Terra"], ["Arabia Terra", 21.249, 5.7185, 4851.74, "Terra"], ["Terra Sabaea", 2.7188, 51.3035, 4688.44, "Terra"], ["Aonia Terra", -60.2034, -97.0453, 3873.48, "Terra"], ["Valles Marineris", -14.0059, -58.5877, 3761.28, "Vallis"], ["Terra Sirenum", -39.4946, -154.1521, 3635.18, "Terra"], ["Utopia Planitia", 46.7363, 117.5168, 3560.45, "Planitia"], ["Acidalia Planitia", 49.7556, -20.736, 3362.97, "Planitia"], ["Promethei Terra", -64.3701, 97.0044, 3244.3, "Terra"], ["Elysium Planitia", 2.979, 154.7372, 3000.79, "Planitia"], ["Phlegra Dorsa", 25.0831, 170.3715, 2818.61, "Dorsum"], ["Amazonis Planitia", 25.7461, -162.9128, 2809.04, "Planitia"], ["Margaritifer Terra", -1.8497, -24.9223, 2733.22, "Terra"], ["Sirenum Fossae", -35.5739, -162.7382, 2731.21, "Fossa"], ["Utopia Rupes", 43.5326, 86.0326, 2492.68, "Rupes"], ["Tyrrhena Terra", -11.899, 88.8357, 2470.14, "Terra"], ["Tantalus Fossae", 49.8345, -96.087, 2361.86, "Fossa"], ["Hellas Planitia", -42.4301, 70.5025, 2299.16, "Planitia"], ["Nepenthes Mensae", 9.1922, 119.4206, 2176.23, "Mensa"], ["Tempe Fossae", 40.4186, -71.4002, 2116.24, "Fossa"], ["Icaria Fossae", -48.0888, -125.1617, 2115.45, "Fossa"], ["Alba Fossae", 49.3945, -106.8249, 2072.02, "Fossa"], ["Tharsis Montes", 1.5703, -112.5835, 2058.91, "Mons"], ["Claritas Fossae", -27.8873, -104.2377, 2030.64, "Fossa"], ["Vastitas Borealis", 87.7297, 32.5298, 2002.91, "Vastitas"], ["Tempe Terra", 38.6877, -70.6143, 1954.94, "Terra"], ["Arcadia Dorsa", 55.8961, -137.5601, 1952.65, "Dorsum"], ["Daedalia Planum", -18.3477, -125.9495, 1922.02, "Planum"], ["Olympus Rupes", 18.402, -133.5645, 1914.77, "Rupes"], ["Mareotis Fossae", 44.3428, -76.1231, 1907.94, "Fossa"], ["Arcadia Planitia", 47.1912, -175.6891, 1871.97, "Planitia"], ["Xanthe Terra", 1.5956, -48.0534, 1867.65, "Terra"], ["Lunae Planum", 10.7933, -65.5123, 1817.66, "Planum"], ["Solis Planum", -26.3994, -89.6669, 1811.23, "Planum"], ["Ares Vallis", 10.2924, -25.6083, 1757.67, "Vallis"], ["Tiu Valles", 16.2262, -34.8618, 1720.0, "Vallis"], ["Hephaestus Rupes", 23.5385, 114.9028, 1707.44, "Rupes"], ["Tartarus Colles", 21.245, 175.189, 1672.69, "Collis"], ["Nepenthes Planum", 14.0097, 113.792, 1650.14, "Planum"], ["Terra Meridiani", -7.12, 4.0, 1622.0, ""], ["Hesperia Planum", -21.4226, 109.894, 1601.73, "Planum"], ["Memnonia Fossae", -23.6269, -153.8211, 1585.28, "Fossa"], ["Kasei Valles", 25.1357, -62.8784, 1580.0, "Vallis"], ["Cydnus Rupes", 52.5315, 112.2092, 1550.81, "Rupes"], ["Chryse Planitia", 28.4333, -40.3073, 1542.44, "Planitia"], ["Scandia Colles", 65.467, -139.1276, 1521.68, "Collis"], ["Maja Valles", 10.227, -58.3799, 1515.0, "Vallis"], ["Olympia Undae", 81.164, 178.483, 1507.96, "Unda"], ["Labeatis Fossae", 24.5762, -84.5281, 1496.36, "Fossa"], ["Capri Chasma", -8.2737, -42.0659, 1471.56, "Chasma"], ["Planum Australe", -83.3518, 157.6981, 1429.87, "Planum"], ["Oenotria Scopuli", -6.62, 77.11, 1425.0, "Scopulus"], ["Sacra Dorsa", 11.2146, -66.0857, 1416.0, "Dorsum"], ["Promethei Rupes", -75.5416, 90.2434, 1379.21, "Rupes"], ["Argentea Planum", -72.4944, -61.6655, 1370.64, "Planum"], ["Phlegra Montes", 40.3967, 163.7142, 1350.65, "Mons"], ["Lycus Sulci", 28.1404, -144.4701, 1350.61, "Sulcus"], ["Amenthes Cavi", 16.231, 114.5201, 1330.5, "Cavus"], ["Eos Chasma", -12.1472, -39.1737, 1305.69, "Chasma"], ["Cerberus Fossae", 11.2766, 166.3738, 1235.0, "Fossa"], ["Isidis Planitia", 13.9357, 88.3772, 1224.58, "Planitia"], ["Syrtis Major Planum", 9.2007, 67.103, 1214.86, "Planum"], ["Olympia Rupes", 86.0386, 174.1646, 1197.04, "Rupes"], ["Noctis Labyrinthus", -6.3625, -101.1889, 1190.31, "Labyrinthus"], ["Ceraunius Fossae", 27.0037, -110.1478, 1166.63, "Fossa"], ["Marikh Vallis", -19.1583, 4.3191, 1147.22, "Vallis"], ["Nereidum Montes", -37.5732, -43.2113, 1142.58, "Mons"], ["Panchaia Rupes", 64.3717, 129.8345, 1113.4, "Rupes"], ["Tartarus Montes", 15.4593, 167.5435, 1086.46, "Mons"], ["Isidis Dorsa", 12.9239, 88.2121, 1074.7, "Dorsum"], ["Eridania Planitia", -38.1485, 122.2145, 1062.13, "Planitia"], ["Meridiani Planum", -0.0409, -3.1399, 1058.53, "Planum"], ["Reull Vallis", -42.1449, 104.9524, 1051.94, "Vallis"], ["Elysium Fossae", 24.076, 146.1428, 1044.0, "Fossa"], ["Libya Montes", 1.4424, 88.2284, 1043.63, "Mons"], ["Protonilus Mensae", 43.8694, 48.8636, 1033.97, "Mensa"], ["Sisyphi Planum", -69.6417, 6.4135, 1032.87, "Planum"], ["Shalbatana Vallis", 7.327, -42.0899, 1029.0, "Vallis"], ["Parva Planum", -73.6689, -95.071, 1027.32, "Planum"], ["Mamers Valles", 40.6537, 17.9437, 1020.0, "Vallis"], ["Eridania Scopulus", -52.6127, 141.7941, 1017.66, "Scopulus"], ["Sacra Sulci", 22.1627, -74.7, 1009.05, "Sulcus"], ["Gemini Scopuli", 80.3881, 26.0996, 1000.36, "Scopulus"], ["Thaumasia Fossae", -47.7503, -91.049, 996.18, "Fossa"], ["Simud Valles", 19.0867, -38.0075, 987.99, "Vallis"], ["Hrad Vallis", 38.1681, 135.9131, 974.4, "Vallis"], ["Coprates Chasma", -13.3654, -60.7385, 958.31, "Chasma"], ["Claritas Rupes", -25.037, -105.2607, 952.88, "Rupes"], ["Sacra Fossae", 20.3611, -70.0009, 950.0, "Fossa"], ["Charitum Montes", -58.0971, -40.2921, 933.54, "Mons"], ["Deuteronilus Mensae", 45.1095, 23.9184, 919.17, "Mensa"], ["Cyane Fossae", 31.2538, -121.1714, 913.17, "Fossa"], ["Ma adim Vallis", -21.9808, 177.5021, 913.11, "Vallis"], ["Tractus Catena", 26.9991, -102.7917, 910.57, "Catena"], ["Nilokeras Scopulus", 31.7153, -55.8519, 901.48, "Scopulus"], ["Sinai Planum", -13.7205, -87.7617, 901.44, "Planum"], ["Mangala Valles", -11.3247, -151.3921, 900.0, "Vallis"], ["Lucus Planum", -4.9936, -177.1654, 899.87, "Planum"], ["Argyre Planitia", -49.8406, -43.3098, 892.93, "Planitia"], ["Hyblaeus Dorsa", 13.1629, 130.3232, 887.53, "Dorsum"], ["Malea Planum", -65.8214, 62.9429, 872.47, "Planum"], ["Adamas Labyrinthus", 35.7035, 105.1166, 853.0, "Labyrinthus"], ["Aeolis Planum", -1.1366, 144.7648, 852.81, "Planum"], ["Amenthes Fossae", 9.0748, 102.6843, 850.0, "Fossa"], ["Ulysses Fossae", 9.9474, -123.0672, 849.94, "Fossa"], ["Ius Chasma", -7.2894, -84.3891, 839.91, "Chasma"], ["Tithoniae Fossae", -4.3198, -83.0389, 838.0, "Fossa"], ["Promethei Planum", -79.1841, 88.3602, 831.28, "Planum"], ["Hesperia Dorsa", -22.8014, 113.1555, 818.25, "Dorsum"], ["Erebus Montes", 35.6613, -174.9771, 811.67, "Mons"], ["Candor Chasma", -6.5328, -70.7793, 810.61, "Chasma"], ["Olympia Planum", 82.1805, -171.1899, 804.39, "Planum"], ["Tithonium Chasma", -4.6046, -84.2894, 802.78, "Chasma"], ["Thaumasia Planum", -21.6566, -65.2236, 799.6, "Planum"], ["Tantalus Fluctus", 35.9263, -95.6842, 794.34, "Fluctus"], ["Dao Vallis", -37.6126, 88.8868, 794.0, "Vallis"], ["Loire Valles", -17.6927, -17.0299, 790.0, "Vallis"], ["Aeolis Mensae", -3.2532, 140.6307, 785.09, "Mensa"], ["Solis Dorsa", -22.8764, -79.7448, 779.5, "Dorsum"], ["Tyrrhena Dorsa", -24.1994, 115.7222, 779.4, "Dorsum"], ["Granicus Valles", 30.5765, 129.9709, 777.78, "Vallis"], ["Gemina Lingula", 81.8744, 2.5924, 772.89, "Lingula"], ["Cydonia Mensae", 34.5618, -12.3333, 764.96, "Mensa"], ["Coracis Fossae", -35.8159, -80.863, 748.96, "Fossa"], ["Syria Planum", -12.0883, -103.9002, 735.74, "Planum"], ["Bosporos Planum", -33.8722, -64.4937, 729.58, "Planum"], ["Nili Fossae", 22.0182, 76.6948, 727.91, "Fossa"], ["Aurorae Chaos", -8.4693, -34.8149, 713.92, "Chaos"], ["Noctis Fossae", -2.6934, -98.8482, 712.73, "Fossa"], ["Hellespontus Montes", -44.3682, 42.7599, 711.46, "Mons"], ["Acheron Fossae", 38.2742, -135.0238, 703.11, "Fossa"], ["Cerberus Tholi", 4.4815, 164.414, 698.0, "Tholus"], ["Mangala Fossa", -17.274, -145.8837, 695.0, "Fossa"], ["Nilosyrtis Mensae", 34.7749, 68.4704, 676.02, "Mensa"], ["Naktong Vallis", 4.8874, 33.3932, 669.63, "Vallis"], ["Rupes Tenuis", 81.5952, -85.4694, 669.03, "Rupes"], ["Scandia Cavi", 77.553, -150.3482, 663.79, "Cavus"], ["Samara Valles", -24.1682, -18.7291, 661.84, "Vallis"], ["Chryse Chaos", 9.8646, -37.1896, 658.89, "Chaos"], ["Colles Nili", 38.7204, 62.8762, 653.67, "Collis"], ["Dorsa Brevia", -71.0471, 63.1805, 650.99, "Dorsum"], ["Ophir Planum", -8.4548, -57.8201, 642.24, "Planum"], ["Cavi Angusti", -78.1636, -74.7473, 640.04, "Cavus"], ["Mawrth Vallis", 22.4304, -16.9726, 634.63, "Vallis"], ["Hephaestus Fossae", 20.8358, 122.847, 633.32, "Fossa"], ["Alpheus Colles", -39.3795, 61.5326, 633.02, "Collis"], ["Syria Colles", -13.4615, -100.7314, 630.0, "Collis"], ["Nectaris Fossae", -23.085, -57.1568, 623.07, "Fossa"], ["Cerberus Dorsa", -13.7396, 105.2908, 623.05, "Dorsum"], ["Ascuris Planum", 40.5923, -80.7765, 617.66, "Planum"], ["Galaxias Colles", 36.8022, 147.4815, 610.34, "Collis"], ["Olympus Mons", 18.6528, -133.8025, 610.13, "Mons"], ["Nirgal Vallis", -28.1596, -41.6848, 610.0, "Vallis"], ["Galaxias Fluctus", 30.9565, 143.0287, 607.03, "Fluctus"], ["Al Qahira Vallis", -18.2333, 162.4073, 600.0, "Vallis"], ["Astapus Colles", 35.4585, 88.0803, 597.0, "Collis"], ["Liris Valles", -10.4952, 58.2466, 596.24, "Vallis"], ["Oxia Colles", 21.2373, -26.2714, 595.24, "Collis"], ["Hellas Chaos", -47.1212, 64.4081, 590.62, "Chaos"], ["Sinai Fossae", -14.0816, -78.6684, 589.15, "Fossa"], ["Arena Colles", 24.6276, 82.9305, 580.12, "Collis"], ["Sacra Mensa", 24.642, -68.2152, 577.0, "Mensa"], ["Planum Chronium", -59.1362, 139.4978, 576.38, "Planum"], ["Coloe Fossae", 36.6501, 56.7804, 575.89, "Fossa"], ["Zephyria Planum", -1.0807, 153.7297, 575.11, "Planum"], ["Ganges Chasma", -7.9552, -47.8851, 574.08, "Chasma"], ["Promethei Lingula", -82.7969, 119.892, 571.63, "Lingula"], ["Eumenides Dorsum", 4.7921, -156.3978, 569.26, "Dorsum"], ["Melas Fossae", -26.283, -71.522, 568.18, "Fossa"], ["Icaria Planum", -43.2703, -106.0356, 566.59, "Planum"], ["Aurorae Planum", -10.4129, -48.6217, 564.49, "Planum"], ["Melas Chasma", -10.5178, -72.5387, 563.52, "Chasma"], ["Aonia Planum", -57.8975, -78.6745, 563.45, "Planum"], ["Tithoniae Catenae", -5.4957, -81.8244, 562.0, "Catena"], ["Ultimi Scopuli", -77.8791, 179.0448, 560.47, "Scopulus"], ["Galaxias Fossae", 36.6336, 142.0008, 552.0, "Fossa"], ["Ultima Lingula", -76.3219, 142.5628, 551.28, "Lingula"], ["Charybdis Scopulus", -24.1412, 20.0762, 551.26, "Scopulus"], ["Nanedi Valles", 5.0487, -48.6163, 550.0, "Vallis"], ["Thyles Rupes", -69.3239, 132.2839, 548.75, "Rupes"], ["Alba Mons", 41.082, -110.7094, 548.02, "Mons"], ["Uranius Dorsum", 23.7933, -75.0438, 542.08, "Dorsum"], ["Aeolis Serpens", -1.3843, 149.5679, 538.55, "Serpens"], ["Mad Vallis", -56.2729, 76.4676, 537.37, "Vallis"], ["Aganippe Fossa", -8.4885, -126.0027, 537.16, "Fossa"], ["Bosporos Rupes", -42.7447, -57.5536, 531.42, "Rupes"], ["Enipeus Vallis", 36.7964, -92.7979, 527.07, "Vallis"], ["Harmakhis Vallis", -40.9776, 90.0638, 526.66, "Vallis"], ["Louros Valles", -8.41, -81.7746, 516.14, "Vallis"], ["Ophir Catenae", -9.46, -59.4, 509.0, "Catena"], ["Australe Scopuli", -83.4768, -112.9377, 504.58, "Scopulus"], ["Arsia Sulci", -6.2853, -129.812, 500.0, "Sulcus"], ["Xanthe Montes", 18.132, -54.9182, 499.32, "Mons"], ["Eos Chaos", -16.8183, -46.522, 497.85, "Chaos"], ["Melas Dorsa", -18.9187, -72.096, 486.81, "Dorsum"], ["Gordii Dorsum", 4.1069, -144.1422, 481.56, "Dorsum"], ["Juventae Dorsa", 0.3885, -71.0183, 481.41, "Dorsum"], ["Echus Chaos", 10.7879, -74.719, 480.51, "Chaos"], ["Scylla Scopulus", -25.2199, 18.3372, 476.91, "Scopulus"], ["Arsia Mons", -8.2571, -120.0925, 470.0, "Mons"], ["Huygens", -13.8819, 55.5817, 467.25, "Crater"], ["Cerberus Palus", 5.7765, 148.1452, 466.68, "Palus"], ["Hyperboreae Undae", 79.965, -49.4855, 463.65, "Unda"], ["Chasma Boreale", 82.5412, -47.6403, 459.88, "Chasma"], ["Aeolis Dorsa", -5.0465, 152.6345, 459.17, "Dorsum"], ["Schiaparelli", -2.7138, 16.7716, 458.52, "Crater"], ["Greeley", -36.7932, 3.9177, 457.45, "Crater"], ["Sinai Dorsa", -12.7715, -78.9245, 456.54, "Dorsum"], ["Ascraeus Mons", 11.9216, -104.0808, 456.4, "Mons"], ["Memnonia Sulci", -7.1612, -175.8269, 452.66, "Sulcus"], ["Nilokeras Mensae", 30.4806, -51.9487, 450.88, "Mensa"], ["Iani Chaos", -2.1921, -17.042, 450.51, "Chaos"], ["Hadriacus Mons", -31.2938, 91.8567, 450.0, "Mons"], ["Chico Valles", -66.7688, -152.2323, 446.35, "Vallis"], ["Abalos Undae", 78.5167, -87.4993, 442.74, "Unda"], ["Naro Vallis", -3.997, 60.7115, 442.72, "Vallis"], ["Vichada Valles", -19.8709, 88.1348, 438.31, "Vallis"], ["Australe Lingula", -84.0527, 68.5593, 436.33, "Lingula"], ["Axius Valles", -54.5265, 70.7247, 435.95, "Vallis"]];
+
+        // Variables de estado
+        let enVista3D = true;
+        let tormentasActivas = [];
+        let animacionMovimiento = null;
+        let mostrarNomenclatura = true;
+        let capaBaseTrekActiva = 'viking';
+
+        // =====================================================================
+        // FUNCIONES MATEMATICAS MARCIANAS (ESFEROIDE R = 3389.5 KM)
+        // =====================================================================
+        function normalizarLongitud(lon) {
+            return Number(Math.max(-179.0, Math.min(179.0, parseFloat(lon))).toFixed(4));
+        }
+
+        function calcularDistanciaMarteKm(lat1, lon1, lat2, lon2) {
+            const kmPorGradoLat = 59.158;
+            const pasos = 10;
+            const dlatPaso = (parseFloat(lat2) - parseFloat(lat1)) / pasos;
+            const dlonPaso = (parseFloat(lon2) - parseFloat(lon1)) / pasos;
+            let totalKm = 0.0;
+            for (let i = 0; i < pasos; i++) {
+                const latM = parseFloat(lat1) + (i + 0.5) * dlatPaso;
+                const cosLat = Math.max(0.2, Math.cos((latM * Math.PI) / 180.0));
+                const dyKm = dlatPaso * kmPorGradoLat;
+                const dxKm = dlonPaso * kmPorGradoLat * cosLat;
+                totalKm += Math.hypot(dxKm, dyKm);
+            }
+            return totalKm;
+        }
+
+        // Convierte radio real en km marcianos a metros de proyeccion Leaflet para que el circulo visual coincida al 100% con el hitbox A*
+        function radioMarteKmAMetrosLeaflet(radioKm) {
+            const factorTierraMarte = 6371.0 / 3389.5;
+            return radioKm * 1000.0 * factorTierraMarte;
+        }
+
+        // =====================================================================
+        // PARTE 1: GLOBO 3D DE MARTE REALISTA (NASA MARS TREK VIKING + MOLA)
+        // =====================================================================
+        function crearTexturaMarteCompleta(callback) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            grad.addColorStop(0.00, '#e8ddd5');
+            grad.addColorStop(0.06, '#b85d38');
+            grad.addColorStop(0.25, '#c9653b');
+            grad.addColorStop(0.50, '#a84724');
+            grad.addColorStop(0.75, '#bf5b32');
+            grad.addColorStop(0.94, '#9e4625');
+            grad.addColorStop(1.00, '#ede4dc');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            callback(canvas.toDataURL('image/jpeg', 0.90));
+        }
+
+        function coserTilesEquirectangularesTrek(layerId, z, callback) {
+            const cols = Math.pow(2, z + 1);
+            const rows = Math.pow(2, z);
+            const tileSize = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = cols * tileSize;
+            canvas.height = rows * tileSize;
+            const ctx = canvas.getContext('2d');
+
+            let cargados = 0;
+            const total = cols * rows;
+            let fallos = 0;
+
+            for (let x = 0; x < cols; x++) {
+                for (let y = 0; y < rows; y++) {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => {
+                        ctx.drawImage(img, x * tileSize, y * tileSize, tileSize, tileSize);
+                        cargados++;
+                        if (cargados + fallos === total && cargados > 0) {
+                            callback(canvas.toDataURL('image/jpeg', 0.92));
+                        }
+                    };
+                    img.onerror = () => {
+                        fallos++;
+                        if (cargados + fallos === total && cargados > 0) {
+                            callback(canvas.toDataURL('image/jpeg', 0.92));
+                        }
+                    };
+                    img.src = `https://trek.nasa.gov/tiles/Mars/EQ/${layerId}/1.0.0/default/default028mm/${z}/${y}/${x}.jpg`;
+                }
+            }
+        }
+
+        function sincronizarTexturaGloboDesdeTiles(globo) {
+            // Fase 1 rapida (z=1: 1024x512) + Relieve MOLA (z=1: 1024x512)
+            coserTilesEquirectangularesTrek('Mars_Viking_MDIM21_ClrMosaic_global_232m', 1, (dataUrl) => {
+                globo.globeImageUrl(dataUrl);
+            });
+            coserTilesEquirectangularesTrek('Mars_MGS_MOLA_ClrShade_merge_global_463m', 1, (bumpUrl) => {
+                globo.bumpImageUrl(bumpUrl);
+            });
+            // Fase 2 HD (z=2: 2048x1024) con mosaico fotografico Viking de NASA Mars Trek
+            coserTilesEquirectangularesTrek('Mars_Viking_MDIM21_ClrMosaic_global_232m', 2, (hdUrl) => {
+                globo.globeImageUrl(hdUrl);
+            });
+        }
+
+        function crearFondoEstrellas() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#030306';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < 1800; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const radio = Math.random() * 1.2;
+                const brillo = Math.random() * 0.75 + 0.15;
+                ctx.fillStyle = `rgba(255, 255, 255, ${brillo})`;
+                ctx.beginPath();
+                ctx.arc(x, y, radio, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            return canvas.toDataURL();
+        }
+
+        const contenedorGlobo = document.getElementById('globo-3d');
+        const globoMarte = Globe()(contenedorGlobo)
+            .backgroundImageUrl(crearFondoEstrellas())
+            .showAtmosphere(true)
+            .atmosphereColor('#e87846')
+            .atmosphereAltitude(0.06)
+            .onGlobeClick(({lat, lng}) => {
+                descenderASuperficie(lat, lng);
+            });
+
+        crearTexturaMarteCompleta((dataUrl) => {
+            globoMarte.globeImageUrl(dataUrl);
+            globoMarte.bumpImageUrl(dataUrl);
+        });
+        sincronizarTexturaGloboDesdeTiles(globoMarte);
+
+        function actualizarNomenclaturaGlobo3D() {
+            if (!globoMarte || typeof globoMarte.labelsData !== 'function') return;
+            if (!mostrarNomenclatura) {
+                globoMarte.labelsData([]);
+                return;
+            }
+            const pov = globoMarte.pointOfView() || {lat: 20, lng: -120, altitude: 2.0};
+            const alt = pov.altitude || 2.0;
+
+            let minDiam = 1750;
+            let maxLabels = 14;
+            let labelSize = 1.25;
+            if (alt <= 0.75) {
+                minDiam = 170;
+                maxLabels = 40;
+                labelSize = 0.55;
+            } else if (alt <= 1.25) {
+                minDiam = 520;
+                maxLabels = 30;
+                labelSize = 0.85;
+            } else if (alt <= 1.75) {
+                minDiam = 950;
+                maxLabels = 22;
+                labelSize = 1.05;
+            }
+
+            const nombresPrincipales = new Set(UBICACIONES_PRINCIPALES.map(u => u.nombre.toLowerCase()));
+            const visibles = [];
+            for (let i = 0; i < NOMENCLATURA_MARTE.length; i++) {
+                const f = NOMENCLATURA_MARTE[i];
+                if (f[3] < minDiam) break;
+                if (nombresPrincipales.has(f[0].toLowerCase())) continue;
+                if (alt <= 1.35) {
+                    const distKm = calcularDistanciaMarteKm(pov.lat, pov.lng, f[1], f[2]);
+                    if (distKm > alt * 3400) continue;
+                }
+                visibles.push(f);
+                if (visibles.length >= maxLabels) break;
+            }
+
+            globoMarte
+                .labelsData(visibles)
+                .labelLat(d => d[1])
+                .labelLng(d => d[2])
+                .labelText(d => d[0].toUpperCase())
+                .labelSize(() => labelSize)
+                .labelDotRadius(() => labelSize * 0.28)
+                .labelColor(() => 'rgba(255, 224, 182, 0.85)')
+                .labelAltitude(0.012)
+                .labelResolution(2);
+        }
+
+        globoMarte
+            .pointsData(UBICACIONES_PRINCIPALES)
+            .pointLat('lat_central')
+            .pointLng('lon_central')
+            .pointColor(d => d.es_refugio ? '#00ffaa' : '#ff4444')
+            .pointAltitude(0.03)
+            .pointRadius(0.65)
+            .pointLabel(d => `<div style="font-family:monospace;background:rgba(0,0,0,0.85);padding:6px 10px;border:1px solid #00ffff;color:#fff;border-radius:4px;"><b>${d.nombre}</b> (${d.clasificacion_excel})<br>Temp: ${d.temperatura_valor_k} K | Elev: ${d.elevacion_valor_m} m | Presion: ${d.presion_valor_pa} Pa</div>`)
+            .onPointClick(d => {
+                descenderASuperficie(d.lat_central, d.lon_central);
+            });
+
+        const materialGlobo = globoMarte.globeMaterial();
+        materialGlobo.bumpScale = 14;
+        materialGlobo.roughness = 0.88;
+        materialGlobo.metalness = 0.04;
+
+        const escena = globoMarte.scene();
+        escena.children.forEach(obj => {
+            if (obj.type === 'AmbientLight') obj.intensity = 1.25;
+            if (obj.type === 'DirectionalLight') {
+                obj.intensity = 1.15;
+                obj.position.set(1, 0.5, 2);
+            }
+        });
+
+        globoMarte.pointOfView({lat: 30.0, lng: -145.0, altitude: 2.0});
+        globoMarte.controls().autoRotate = true;
+        globoMarte.controls().autoRotateSpeed = 0.35;
+        globoMarte.controls().enableDamping = true;
+
+        let timerNomenclatura3D = null;
+        globoMarte.controls().addEventListener('change', () => {
+            if (!enVista3D) return;
+            if (timerNomenclatura3D) return;
+            timerNomenclatura3D = setTimeout(() => {
+                timerNomenclatura3D = null;
+                actualizarNomenclaturaGlobo3D();
+            }, 180);
+        });
+
+        // =====================================================================
+        // PARTE 2: MAPA 2D TACTICO REALISTA NASA MARS TREK (EPSG:4326 / 104905)
+        // =====================================================================
+        const limitesMarteEsencial = L.latLngBounds(
+            L.latLng(-82, -215),
+            L.latLng(82, 165)
+        );
+
+        function calcularMinZoomEsencial() {
+            const zoomAlto = Math.log2(window.innerHeight / 215);
+            const zoomAncho = Math.log2(window.innerWidth / 460);
+            const z = Math.max(1.25, Math.max(zoomAlto, zoomAncho));
+            return Math.ceil(z * 4) / 4;
+        }
+
+        const minZoomInicial = calcularMinZoomEsencial();
+
+        const map = L.map('mapa', {
+            crs: L.CRS.EPSG4326,
+            center: [12.0, -45.0],
+            zoom: Math.max(1.75, minZoomInicial),
+            minZoom: minZoomInicial,
+            maxZoom: 9,
+            zoomSnap: 0.25,
+            zoomDelta: 0.5,
+            maxBounds: limitesMarteEsencial,
+            maxBoundsViscosity: 1.0,
+            bounceAtZoomLimits: false,
+            worldCopyJump: false,
+            zoomControl: false
+        });
+
+        window.addEventListener('resize', () => {
+            if (typeof globoMarte !== 'undefined' && globoMarte) {
+                globoMarte.width(window.innerWidth).height(window.innerHeight);
+            }
+            const nuevoMinZoom = calcularMinZoomEsencial();
+            map.setMinZoom(nuevoMinZoom);
+            if (map.getZoom() < nuevoMinZoom) {
+                map.setZoom(nuevoMinZoom);
+            }
+            map.invalidateSize();
+            renderizarNomenclaturaMapa2D();
+        });
+
+        // Capa WMTS oficial de NASA Mars Trek (EPSG:104905 Equirectangular) con envolvente continua en longitud
+        const CapaMarteTrek = L.TileLayer.extend({
+            getTileUrl: function (coords) {
+                const z = this._getZoomForUrl();
+                const cols = Math.pow(2, z + 1);
+                const rows = Math.pow(2, z);
+                if (coords.y < 0 || coords.y >= rows) {
+                    return 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                }
+                const x = ((coords.x % cols) + cols) % cols;
+                return L.Util.template(this._url, {z: z, y: coords.y, x: x});
+            }
+        });
+
+        const capaVikingTrek = new CapaMarteTrek(
+            'https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/{z}/{y}/{x}.jpg',
+            {
+                minZoom: 0,
+                maxNativeZoom: 7,
+                maxZoom: 9,
+                noWrap: false
+            }
+        ).addTo(map);
+
+        const capaMolaTrek = new CapaMarteTrek(
+            'https://trek.nasa.gov/tiles/Mars/EQ/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/default/default028mm/{z}/{y}/{x}.jpg',
+            {
+                minZoom: 0,
+                maxNativeZoom: 5,
+                maxZoom: 9,
+                noWrap: false
+            }
+        );
+
+        const grupoGraticula = L.layerGroup().addTo(map);
+        const grupoNomenclatura = L.layerGroup().addTo(map);
+        const grupoLugares = L.layerGroup().addTo(map);
+        const grupoHitboxes = L.layerGroup().addTo(map);
+        const grupoTormentas = L.layerGroup().addTo(map);
+        const grupoRuta = L.layerGroup().addTo(map);
+
+        // Reticula cartografica sutil (estilo ERGraticule de Mars Trek)
+        function dibujarGraticulaMarte() {
+            grupoGraticula.clearLayers();
+            for (let lat = -60; lat <= 60; lat += 30) {
+                L.polyline([[lat, -215], [lat, 180]], {
+                    color: lat === 0 ? 'rgba(255, 160, 100, 0.16)' : 'rgba(255, 160, 100, 0.08)',
+                    weight: lat === 0 ? 1.1 : 0.7,
+                    dashArray: lat === 0 ? null : '3, 6',
+                    interactive: false
+                }).addTo(grupoGraticula);
+            }
+            for (let lon = -180; lon <= 150; lon += 30) {
+                L.polyline([[-82, lon], [82, lon]], {
+                    color: lon === 0 ? 'rgba(255, 160, 100, 0.16)' : 'rgba(255, 160, 100, 0.08)',
+                    weight: lon === 0 ? 1.1 : 0.7,
+                    dashArray: lon === 0 ? null : '3, 6',
+                    interactive: false
+                }).addTo(grupoGraticula);
+            }
+        }
+        dibujarGraticulaMarte();
+
+        function cambiarCapaBaseTrek(modo) {
+            capaBaseTrekActiva = modo;
+            const btnVik = document.getElementById('btn-capa-viking');
+            const btnMol = document.getElementById('btn-capa-mola');
+            if (modo === 'mola') {
+                if (map.hasLayer(capaVikingTrek)) map.removeLayer(capaVikingTrek);
+                if (!map.hasLayer(capaMolaTrek)) capaMolaTrek.addTo(map);
+                if (btnVik) btnVik.classList.remove('activo');
+                if (btnMol) btnMol.classList.add('activo');
+            } else {
+                if (map.hasLayer(capaMolaTrek)) map.removeLayer(capaMolaTrek);
+                if (!map.hasLayer(capaVikingTrek)) capaVikingTrek.addTo(map);
+                if (btnVik) btnVik.classList.add('activo');
+                if (btnMol) btnMol.classList.remove('activo');
+            }
+        }
+
+        function toggleNomenclaturaMapa() {
+            mostrarNomenclatura = !mostrarNomenclatura;
+            const btn = document.getElementById('btn-nomenclatura-toggle');
+            if (btn) {
+                btn.innerText = mostrarNomenclatura ? 'NOMBRES: ON' : 'NOMBRES: OFF';
+                btn.classList.toggle('activo', mostrarNomenclatura);
+            }
+            renderizarNomenclaturaMapa2D();
+            actualizarNomenclaturaGlobo3D();
+        }
+
+        // Muestra progresivamente los nombres de regiones, volcanes, valles y crateres conforme haces zoom
+        function renderizarNomenclaturaMapa2D() {
+            grupoNomenclatura.clearLayers();
+            if (!mostrarNomenclatura) return;
+
+            const z = map.getZoom();
+            const bounds = map.getBounds().pad(0.08);
+            const liveCoords = document.getElementById('trek-coords-live');
+            if (liveCoords) {
+                const c = map.getCenter();
+                liveCoords.innerText = `LAT ${c.lat.toFixed(2)} | LON ${c.lng.toFixed(2)} | Z ${z.toFixed(1)}`;
+            }
+
+            let minDiam = 1550;
+            let maxEtiquetas = 18;
+            if (z >= 5.5) {
+                minDiam = 30;
+                maxEtiquetas = 65;
+            } else if (z >= 4.25) {
+                minDiam = 85;
+                maxEtiquetas = 52;
+            } else if (z >= 3.0) {
+                minDiam = 240;
+                maxEtiquetas = 42;
+            } else if (z >= 2.0) {
+                minDiam = 650;
+                maxEtiquetas = 28;
+            }
+
+            // Reservar cajas de los pines principales y obstaculos para no empalmar texto
+            const cajasOcupadas = [];
+            const puntosReservados = [
+                ...UBICACIONES_PRINCIPALES.map(u => ({nombre: u.nombre.toLowerCase(), lat: u.lat_central, lon: u.lon_central})),
+                ...ZONAS_OBSTACULOS.map(o => ({nombre: o.nombre.toLowerCase(), lat: o.lat_central, lon: o.lon_central}))
+            ];
+            puntosReservados.forEach(pr => {
+                const pt = map.latLngToContainerPoint([pr.lat, pr.lon]);
+                cajasOcupadas.push({x1: pt.x - 85, y1: pt.y - 18, x2: pt.x + 85, y2: pt.y + 18});
+            });
+
+            let agregadas = 0;
+            for (let i = 0; i < NOMENCLATURA_MARTE.length; i++) {
+                const f = NOMENCLATURA_MARTE[i];
+                const nombre = f[0];
+                const lat = f[1];
+                const lon = f[2];
+                const diam = f[3];
+                const tipo = f[4];
+
+                if (diam < minDiam) break;
+
+                // Evitar duplicar etiquetas de los 6 destinos o de zonas de obstaculo con pin fijo
+                if (puntosReservados.some(pr => pr.nombre === nombre.toLowerCase() || (Math.abs(pr.lat - lat) < 1.2 && Math.abs(pr.lon - lon) < 1.2))) {
+                    continue;
+                }
+
+                // Evaluar posicion normal y envuelta (-360) si cae en el margen izquierdo extendido (-215 a -180)
+                const candidatosLon = lon > 140 ? [lon, lon - 360] : [lon];
+                for (const lonVis of candidatosLon) {
+                    const ll = L.latLng(lat, lonVis);
+                    if (!bounds.contains(ll)) continue;
+
+                    const pt = map.latLngToContainerPoint(ll);
+                    const ancho = Math.max(76, nombre.length * 6.8);
+                    const alto = 20;
+                    const caja = {x1: pt.x - ancho / 2, y1: pt.y - alto / 2, x2: pt.x + ancho / 2, y2: pt.y + alto / 2};
+
+                    let choca = false;
+                    for (let k = 0; k < cajasOcupadas.length; k++) {
+                        const o = cajasOcupadas[k];
+                        if (!(caja.x2 < o.x1 || caja.x1 > o.x2 || caja.y2 < o.y1 || caja.y1 > o.y2)) {
+                            choca = true;
+                            break;
+                        }
+                    }
+                    if (choca) continue;
+
+                    cajasOcupadas.push(caja);
+                    const claseEscala = diam >= 1200 ? 'macro' : (diam >= 250 ? 'medio' : 'detalle');
+                    const subTipoHtml = (z >= 3.25 && tipo) ? `<span class="nomenclatura-tipo-sub">${tipo} (${Math.round(diam)} km)</span>` : '';
+
+                    const iconoNom = L.divIcon({
+                        className: '',
+                        html: `<div class="nomenclatura-label-2d ${claseEscala}">${nombre}${subTipoHtml}</div>`,
+                        iconSize: [Math.round(ancho + 16), 24],
+                        iconAnchor: [Math.round((ancho + 16) / 2), 12]
+                    });
+
+                    L.marker([lat, lonVis], {
+                        icon: iconoNom,
+                        interactive: false,
+                        zIndexOffset: 100
+                    }).addTo(grupoNomenclatura);
+
+                    agregadas++;
+                    break;
+                }
+                if (agregadas >= maxEtiquetas) break;
+            }
+        }
+
+        map.on('zoomend moveend', renderizarNomenclaturaMapa2D);
+        map.on('mousemove', (e) => {
+            const liveCoords = document.getElementById('trek-coords-live');
+            if (liveCoords && !enVista3D) {
+                let lonNorm = e.latlng.lng;
+                if (lonNorm < -180) lonNorm += 360;
+                if (lonNorm > 180) lonNorm -= 360;
+                liveCoords.innerText = `LAT ${e.latlng.lat.toFixed(2)} | LON ${lonNorm.toFixed(2)} | Z ${map.getZoom().toFixed(1)}`;
+            }
+        });
+
+        // =====================================================================
+        // PARTE 3: DIBUJAR LAS 4 UBICACIONES Y LOS 4 HITBOXES DISIMULADOS
+        // =====================================================================
+        function renderizarElementosMapa() {
+            grupoLugares.clearLayers();
+            grupoHitboxes.clearLayers();
+
+            // 1. Dibujar Hitboxes y etiquetas de ZONAS_OBSTACULOS (Zonas peligrosas a evitar y de precaucion)
+            ZONAS_OBSTACULOS.forEach((obs) => {
+                const esEsquivar = obs.accion_requerida.trim().toLowerCase() === 'esquivar';
+                const radioKm = obs.diametro_km / 2.0;
+                const radioLeaflet = radioMarteKmAMetrosLeaflet(radioKm);
+
+                L.circle([obs.lat_central, obs.lon_central], {
+                    color: esEsquivar ? 'rgba(255, 60, 60, 0.28)' : 'rgba(255, 175, 40, 0.22)',
+                    fillColor: esEsquivar ? '#ff2222' : '#ffaa00',
+                    fillOpacity: esEsquivar ? 0.06 : 0.04,
+                    radius: radioLeaflet,
+                    weight: 1.2,
+                    dashArray: '4, 6',
+                    interactive: false
+                }).addTo(grupoHitboxes);
+
+                // Mostrar etiqueta en el mapa para las zonas peligrosas a evitar que no son destinos seleccionables
+                const yaTienePinPrincipal = UBICACIONES_PRINCIPALES.some(
+                    u => u.nombre.toLowerCase() === obs.nombre.toLowerCase()
+                );
+                if (!yaTienePinPrincipal && esEsquivar) {
+                    const iconoObstaculo = L.divIcon({
+                        className: '',
+                        html: `<div class="pin-lugar-peligroso" style="opacity:0.78; font-size:10px; padding:2px 6px; border-color:rgba(255,70,70,0.55);">${obs.nombre.toUpperCase()}</div>`,
+                        iconSize: [150, 20],
+                        iconAnchor: [75, 10]
+                    });
+                    L.marker([obs.lat_central, obs.lon_central], {
+                        icon: iconoObstaculo,
+                        interactive: false
+                    }).addTo(grupoLugares);
+                }
+            });
+
+            // 1b. Dibujar las 2 Zonas Seguras Auxiliares (Amazonis Planitia y Meridiani Planum) para refugio de tormentas
+            ZONAS_SEGURAS_AUXILIARES.forEach((zRef) => {
+                const radioKm = zRef.diametro_km / 2.0;
+                const radioLeaflet = radioMarteKmAMetrosLeaflet(radioKm);
+
+                L.circle([zRef.lat_central, zRef.lon_central], {
+                    color: 'rgba(0, 255, 170, 0.22)',
+                    fillColor: '#00ffaa',
+                    fillOpacity: 0.035,
+                    radius: radioLeaflet,
+                    weight: 1,
+                    dashArray: '4, 6',
+                    interactive: false
+                }).addTo(grupoHitboxes);
+
+                const iconoRefugioAux = L.divIcon({
+                    className: '',
+                    html: `<div class="pin-lugar-seguro" style="opacity:0.78; font-size:10px; padding:2px 6px;">${zRef.nombre.toUpperCase()}</div>`,
+                    iconSize: [140, 20],
+                    iconAnchor: [70, 10]
+                });
+
+                L.marker([zRef.lat_central, zRef.lon_central], {
+                    icon: iconoRefugioAux,
+                    interactive: false
+                }).addTo(grupoLugares);
+            });
+
+            // 2. Dibujar las 4 Ubicaciones Principales solo con su nombre (sin texto descriptivo extra)
+            UBICACIONES_PRINCIPALES.forEach((u) => {
+                const clasePin = u.es_refugio ? 'pin-lugar-seguro' : 'pin-lugar-peligroso';
+
+                const iconoLugar = L.divIcon({
+                    className: '',
+                    html: `<div class="${clasePin}">${u.nombre.toUpperCase()}</div>`,
+                    iconSize: [150, 24],
+                    iconAnchor: [75, 12]
+                });
+
+                const marker = L.marker([u.lat_central, u.lon_central], {
+                    icon: iconoLugar,
+                    zIndexOffset: 500
+                }).addTo(grupoLugares);
+
+                marker.bindPopup(`
+                    <div style="font-family: monospace; color: #052028; min-width: 210px; font-size: 11px;">
+                        <strong style="font-size: 13px; color: #ff5500;">${u.nombre}</strong><br>
+                        <span><b>Subregion:</b> ${u.subregion}</span><br>
+                        <span><b>Coords:</b> ${u.lat_central.toFixed(2)}, ${u.lon_central.toFixed(2)}</span>
+                        <div style="margin-top:8px; display:flex; gap:6px;">
+                            <button onclick="fijarComoOrigen('${u.id_ubicacion}')" style="flex:1; background:#00d4ff; border:none; padding:5px; font-weight:bold; cursor:pointer; border-radius:4px;">Punto A (Inicio)</button>
+                            <button onclick="fijarComoDestino('${u.id_ubicacion}')" style="flex:1; background:#ff5500; color:#fff; border:none; padding:5px; font-weight:bold; cursor:pointer; border-radius:4px;">Punto B (Destino)</button>
+                        </div>
+                    </div>
+                `);
+            });
+        }
+
+        renderizarElementosMapa();
+
+        // =====================================================================
+        // PARTE 4: ASTRONAUTA SVG Y DETECCION DE HITBOX EN TIEMPO REAL
+        // =====================================================================
+        const svgAstronautaHTML = `
+            <div id="astro-box" class="astronauta-contenedor">
+                <div id="badge-reserva-astro" class="badge-reserva-astro">ESTAS EN RESERVA</div>
+                <svg id="astro-svg" class="astronauta-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="32" cy="59" rx="14" ry="4" fill="rgba(0,0,0,0.6)"/>
+                    <g class="astro-cuerpo">
+                        <polygon class="fuego-propulsor" points="14,38 8,43 15,44" fill="#00ffff"/>
+                        <polygon class="fuego-propulsor" points="14,39 10,42 15,43" fill="#ffffff"/>
+                        <rect x="14" y="25" width="8" height="18" rx="2" fill="#d0d8e0" stroke="#1a1a1a" stroke-width="2"/>
+                        <rect x="16" y="28" width="4" height="5" fill="#ff5500"/>
+                        <g class="pierna-izq">
+                            <rect x="24" y="43" width="7" height="12" rx="2" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+                            <rect x="24" y="51" width="9" height="4" rx="1" fill="#ff7711" stroke="#1a1a1a" stroke-width="1.5"/>
+                        </g>
+                        <g class="pierna-der">
+                            <rect x="33" y="43" width="7" height="12" rx="2" fill="#e6ecf2" stroke="#1a1a1a" stroke-width="2"/>
+                            <rect x="33" y="51" width="9" height="4" rx="1" fill="#ff7711" stroke="#1a1a1a" stroke-width="1.5"/>
+                        </g>
+                        <rect x="21" y="27" width="22" height="18" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+                        <rect x="21" y="40" width="22" height="3" fill="#ff6600"/>
+                        <rect x="27" y="30" width="10" height="7" rx="1" fill="#2b3540" stroke="#1a1a1a" stroke-width="1"/>
+                        <circle cx="30" cy="33" r="1.3" fill="#00ffaa"/>
+                        <circle cx="34" cy="33" r="1.3" fill="#ff5500"/>
+                        <rect x="28" y="29" width="7" height="12" rx="3" fill="#f0f4f8" stroke="#1a1a1a" stroke-width="2"/>
+                        <rect x="28" y="38" width="7" height="4" rx="1" fill="#ff7711" stroke="#1a1a1a" stroke-width="1.5"/>
+                        <rect x="18" y="7" width="28" height="22" rx="10" fill="#ff8822" stroke="#1a1a1a" stroke-width="2"/>
+                        <line x1="22" y1="7" x2="22" y2="2" stroke="#cccccc" stroke-width="2"/>
+                        <circle cx="22" cy="2" r="2" fill="#00ffff"/>
+                        <rect x="24" y="12" width="20" height="12" rx="5" fill="#003b4d" stroke="#1a1a1a" stroke-width="2"/>
+                        <rect x="26" y="13" width="16" height="9" rx="3" fill="#00d4ff"/>
+                        <rect x="28" y="14" width="9" height="2.5" rx="1" fill="#ffffff" opacity="0.85"/>
+                        <rect class="overlay-peligro" x="14" y="6" width="32" height="50" rx="8" fill="#ff0000" opacity="0"/>
+                    </g>
+                </svg>
+            </div>
+        `;
+
+        const iconoAstronauta = L.divIcon({
+            className: '',
+            html: svgAstronautaHTML,
+            iconSize: [64, 64],
+            iconAnchor: [32, 54]
+        });
+
+        const marcadorAstronauta = L.marker(
+            [0, 0], // Coordenada segura temporal
+            {icon: iconoAstronauta, zIndexOffset: 1000}
+        ).addTo(map);
+
+        function verificarEstadoZona(latLng) {
+            const box = document.getElementById('astro-box');
+            const hud = document.getElementById('hud');
+            const txtZona = document.getElementById('txt-zona');
+            const txtHitbox = document.getElementById('txt-hitbox-activo');
+            if (!box) return;
+
+            // 1. Revisar si esta dentro de alguna tormenta de polvo activa
+            let tormentaCercana = null;
+            for (const t of tormentasActivas) {
+                const distKm = calcularDistanciaMarteKm(latLng.lat, latLng.lng, t.lat, t.lng);
+                if (distKm <= t.radioKmMarte * 1.04) {
+                    tormentaCercana = t;
+                    break;
+                }
+            }
+
+            // 2. Revisar si esta cruzando algun Hitbox de ZONAS_OBSTACULOS
+            let hitboxTocado = null;
+            for (const obs of ZONAS_OBSTACULOS) {
+                const distKm = calcularDistanciaMarteKm(latLng.lat, latLng.lng, obs.lat_central, obs.lon_central);
+                if (distKm <= (obs.diametro_km / 2.0)) {
+                    hitboxTocado = obs;
+                    break;
+                }
+            }
+
+            // Usar classList.add / remove para NO borrar la clase "cerrado" cuando el usuario
+            // esconde el panel de la derecha mientras el astronauta esta en movimiento
+            if (tormentaCercana) {
+                box.classList.add('en-peligro');
+                hud.classList.remove('precaucion-hud');
+                hud.classList.add('alerta-hud');
+                txtHitbox.style.color = '#ff3333';
+                txtHitbox.innerText = `ALERTA CRITICA: ${tormentaCercana.nombre.toUpperCase()}`;
+            } else if (hitboxTocado) {
+                const esEsquivar = hitboxTocado.accion_requerida.toLowerCase() === 'esquivar';
+                hud.classList.remove('alerta-hud', 'precaucion-hud');
+                hud.classList.add(esEsquivar ? 'alerta-hud' : 'precaucion-hud');
+                txtHitbox.style.color = esEsquivar ? '#ff3333' : '#ffbb33';
+                txtHitbox.innerText = `AVISO ${hitboxTocado.accion_requerida.toUpperCase()}: ${hitboxTocado.nombre} (${hitboxTocado.tipo_riesgo} | Pend: ${hitboxTocado.pendiente_estimada_grados} deg)`;
+            } else if (typeof estadoVitalEVA !== 'undefined' && estadoVitalEVA.enReserva && planDeViajeActual && planDeViajeActual.destinoFinal) {
+                box.classList.add('en-peligro');
+                hud.classList.remove('precaucion-hud');
+                hud.classList.add('alerta-hud');
+                txtHitbox.style.color = '#ffcc00';
+                txtHitbox.innerText = `RESERVA (<20%): Evacuando a ${planDeViajeActual.destinoFinal.nombre}`;
+            } else {
+                box.classList.remove('en-peligro');
+                hud.classList.remove('alerta-hud', 'precaucion-hud');
+                txtHitbox.style.color = '#00ffff';
+                txtHitbox.innerText = 'Hitbox: CORREDOR DESPEJADO';
+            }
+
+            const todasLasZonasSeguras = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+            let ubicCercana = todasLasZonasSeguras[0];
+            let menorDist = Infinity;
+            todasLasZonasSeguras.forEach(u => {
+                const d = calcularDistanciaMarteKm(latLng.lat, latLng.lng, u.lat_central, u.lon_central);
+                if (d < menorDist) {
+                    menorDist = d;
+                    ubicCercana = u;
+                }
+            });
+
+            txtZona.style.color = ubicCercana.es_refugio ? '#00ffaa' : '#ffaa44';
+            txtZona.innerText = `Region cercana: ${ubicCercana.nombre} (${ubicCercana.clasificacion_excel})`;
+        }
+
+        // =====================================================================
+        // PARTE 5: MOTOR A* CON HITBOXES CIRCULARES (ESQUIVAR vs PRECAUCION)
+        // =====================================================================
+        function evaluarInterseccionTramoAStar(nodoA, nodoB, idInicioGlobal, idDestinoGlobal) {
+            const obstaculosEsquivar = [];
+            const obstaculosPrecaucion = [];
+            let maxPendiente = 0.5;
+            let maxProbAccidente = 0.03;
+
+            // Evaluar las zonas de obstaculos de la BD
+            for (const obs of ZONAS_OBSTACULOS) {
+                // Si Olympus Mons o Hellas Planitia es el punto de inicio o destino elegido, permitir entrar/salir de el
+                if (obs.id_obstaculo === 'olympus_mons_obstaculo' &&
+                    (idInicioGlobal === 'olympus_mons' || idDestinoGlobal === 'olympus_mons')) {
+                    continue;
+                }
+                if (obs.id_obstaculo === 'hellas_planitia_obstaculo' &&
+                    (idInicioGlobal === 'hellas_planitia' || idDestinoGlobal === 'hellas_planitia')) {
+                    continue;
+                }
+
+                const radioKm = (obs.diametro_km / 2.0) * 1.05;
+                let intersecta = false;
+
+                for (let paso = 1; paso <= 50; paso++) {
+                    const t = paso / 50.0;
+                    const latI = nodoA.latitud + t * (nodoB.latitud - nodoA.latitud);
+                    const lonI = nodoA.longitud + t * (nodoB.longitud - nodoA.longitud);
+                    const dist = calcularDistanciaMarteKm(latI, lonI, obs.lat_central, obs.lon_central);
+                    if (dist <= radioKm) {
+                        intersecta = true;
+                        break;
+                    }
+                }
+
+                if (intersecta) {
+                    maxPendiente = Math.max(maxPendiente, obs.pendiente_estimada_grados);
+                    maxProbAccidente = Math.max(maxProbAccidente, obs.prob_accidente);
+                    if (obs.accion_requerida.trim().toLowerCase() === 'esquivar') {
+                        obstaculosEsquivar.push(obs);
+                    } else {
+                        obstaculosPrecaucion.push(obs);
+                    }
+                }
+            }
+
+            // Evaluar tambien las tormentas de arena random activas como obstaculos de esquivado obligatorio
+            for (const t of tormentasActivas) {
+                const radioTormentaCheck = t.radioKmMarte * 1.05;
+                for (let paso = 1; paso <= 50; paso++) {
+                    const frac = paso / 50.0;
+                    const latI = nodoA.latitud + frac * (nodoB.latitud - nodoA.latitud);
+                    const lonI = nodoA.longitud + frac * (nodoB.longitud - nodoA.longitud);
+                    const dist = calcularDistanciaMarteKm(latI, lonI, t.lat, t.lng);
+                    if (dist <= radioTormentaCheck) {
+                        obstaculosEsquivar.push({
+                            id_obstaculo: t.id,
+                            nombre: t.nombre,
+                            tipo_riesgo: 'Tormenta de Polvo Activa',
+                            accion_requerida: 'Esquivar'
+                        });
+                        break;
+                    }
+                }
+            }
+
+            return {
+                bloqueadoPorEsquivar: obstaculosEsquivar.length > 0,
+                obstaculosEsquivar,
+                obstaculosPrecaucion,
+                maxPendienteObstaculo: maxPendiente,
+                maxProbAccidente
+            };
+        }
+
+        // Construye el grafo A* colocando un anillo circular de 24 nodos alrededor de cada hitbox "Esquivar"
+        // para que al esquivar avance como en circulo por el camino mas rapido
+        function construirGrafoNavegacionAStar(puntoInicioCustom = null, idInicioGlobal = null, idDestinoGlobal = null) {
+            const nodos = {};
+
+            // Incluir las 4 ubicaciones de viaje y las 2 zonas seguras auxiliares (Amazonis Planitia y Meridiani Planum)
+            [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES].forEach(u => {
+                nodos[u.id_ubicacion] = {
+                    id_nodo: u.id_ubicacion,
+                    nombre: u.nombre,
+                    latitud: u.lat_central,
+                    longitud: normalizarLongitud(u.lon_central),
+                    es_ubicacion_principal: true
+                };
+            });
+
+            if (puntoInicioCustom) {
+                nodos['posicion_actual_muneco'] = {
+                    id_nodo: 'posicion_actual_muneco',
+                    nombre: 'Posicion Actual Astronauta',
+                    latitud: puntoInicioCustom.lat,
+                    longitud: normalizarLongitud(puntoInicioCustom.lng),
+                    es_ubicacion_principal: false
+                };
+            }
+
+            const kmPorGradoLat = 59.158;
+            const numPuntosAnillo = 24; // Cada 15 grados forma un arco circular suave alrededor del hitbox
+
+            // Anillos circulares alrededor de los hitboxes con accion "Esquivar"
+            ZONAS_OBSTACULOS.forEach(obs => {
+                if (obs.accion_requerida.trim().toLowerCase() !== 'esquivar') return;
+                if (obs.id_obstaculo === 'olympus_mons_obstaculo' &&
+                    (idInicioGlobal === 'olympus_mons' || idDestinoGlobal === 'olympus_mons')) {
+                    return;
+                }
+                if (obs.id_obstaculo === 'hellas_planitia_obstaculo' &&
+                    (idInicioGlobal === 'hellas_planitia' || idDestinoGlobal === 'hellas_planitia')) {
+                    return;
+                }
+                const radioKm = obs.diametro_km / 2.0;
+                const radioAnilloKm = radioKm * 1.07;
+                const cosLat = Math.max(0.25, Math.cos((obs.lat_central * Math.PI) / 180.0));
+                const kmPorGradoLon = kmPorGradoLat * cosLat;
+
+                for (let i = 0; i < numPuntosAnillo; i++) {
+                    const anguloDeg = i * (360.0 / numPuntosAnillo);
+                    const anguloRad = (anguloDeg * Math.PI) / 180.0;
+                    const dlat = (radioAnilloKm * Math.cos(anguloRad)) / kmPorGradoLat;
+                    const dlon = (radioAnilloKm * Math.sin(anguloRad)) / kmPorGradoLon;
+                    const nlat = Math.max(-84.0, Math.min(84.0, obs.lat_central + dlat));
+                    const nlon = normalizarLongitud(obs.lon_central + dlon);
+                    const did = `${obs.id_obstaculo}_arco_${Math.round(anguloDeg)}`;
+
+                    nodos[did] = {
+                        id_nodo: did,
+                        nombre: `Arco ${Math.round(anguloDeg)} deg (${obs.nombre})`,
+                        latitud: Number(nlat.toFixed(4)),
+                        longitud: nlon,
+                        es_ubicacion_principal: false
+                    };
+                }
+            });
+
+            // Anillos circulares alrededor de tormentas de polvo random activas
+            tormentasActivas.forEach(t => {
+                const radioAnilloKm = t.radioKmMarte * 1.07;
+                const cosLat = Math.max(0.25, Math.cos((t.lat * Math.PI) / 180.0));
+                const kmPorGradoLon = kmPorGradoLat * cosLat;
+
+                for (let i = 0; i < numPuntosAnillo; i++) {
+                    const anguloDeg = i * (360.0 / numPuntosAnillo);
+                    const anguloRad = (anguloDeg * Math.PI) / 180.0;
+                    const dlat = (radioAnilloKm * Math.cos(anguloRad)) / kmPorGradoLat;
+                    const dlon = (radioAnilloKm * Math.sin(anguloRad)) / kmPorGradoLon;
+                    const nlat = Math.max(-84.0, Math.min(84.0, t.lat + dlat));
+                    const nlon = normalizarLongitud(t.lng + dlon);
+                    const did = `${t.id}_arco_${Math.round(anguloDeg)}`;
+
+                    nodos[did] = {
+                        id_nodo: did,
+                        nombre: `Desvio Circular (${t.nombre})`,
+                        latitud: Number(nlat.toFixed(4)),
+                        longitud: nlon,
+                        es_ubicacion_principal: false
+                    };
+                }
+            });
+
+            return nodos;
+        }
+
+        // Calcula metricas ambientales, fisiologicas y de soporte vital PLSS por tramo usando las formulas oficiales MEIS:
+        // - Pandolf (1977) adaptado a Marte (0.38g, f_g = 0.6892) + factor de rigidez del traje k_suit = 1.5 (Norcross 2010)
+        // - Ecuacion calorimetrica de Weir (c_O2 = 0.2527 g O2 / Wh_th) + fuga estructural PLSS (8.0 g/h)
+        // - Potencia electrica PLSS (95 W_e base + LCVG 0.03 W_e/W_th + aminas RCA 0.04 W_e/W_th sobre 250 W_th + calefaccion 0.65 W_e/K bajo 240 K + polvo)
+        function calcularRendimientoYCostoTramo(nodoA, nodoB, ubicInicio, ubicDestino, idInicioGlobal, idDestinoGlobal, masaCorporalKg, masaTrajeKg) {
+            const distanciaKm = calcularDistanciaMarteKm(nodoA.latitud, nodoA.longitud, nodoB.latitud, nodoB.longitud);
+            const interseccion = evaluarInterseccionTramoAStar(nodoA, nodoB, idInicioGlobal, idDestinoGlobal);
+
+            // Si cruza un hitbox con accion_requerida == "Esquivar" (Erebus Montes, Olympus Mons, Valles Marineris, Noctis Labyrinthus o Tormenta), se bloquea
+            if (interseccion.bloqueadoPorEsquivar) {
+                return null;
+            }
+
+            const hayTormenta = tormentasActivas.length > 0;
+            const hayPrecaucion = interseccion.obstaculosPrecaucion.length > 0;
+            const obsPrec = hayPrecaucion ? interseccion.obstaculosPrecaucion[0] : null;
+
+            // 1. Pendiente efectiva (grados) y factor de terreno (eta: 1.0 roca, 1.3 terreno_irregular, 1.8 arena/polvo fino)
+            const pendienteReg = ((ubicInicio.pendiente_valor_grados || 0.3) + (ubicDestino.pendiente_valor_grados || 0.3)) / 2.0;
+            const pendientePrecaucion = obsPrec ? (obsPrec.pendiente_regional_grados || obsPrec.pendiente_estimada_grados || 4.0) : 0.0;
+            const pendienteEfectiva = Math.max(pendienteReg, pendientePrecaucion);
+
+            const etaDestino = (ubicDestino.id_ubicacion === 'hellas_planitia' || ubicDestino.id_ubicacion === 'olympus_mons') ? 1.8 : 1.3;
+            const etaEfectivo = hayPrecaucion ? 1.8 : etaDestino;
+
+            // 2. Temperatura (K) y Presion atmosferica (Pa) de la zona atravesada
+            const tempMediaK = obsPrec && obsPrec.temperatura_valor_k
+                ? obsPrec.temperatura_valor_k
+                : ((ubicInicio.temperatura_valor_k || 200.0) + (ubicDestino.temperatura_valor_k || 200.0)) / 2.0;
+            const presionMediaPa = obsPrec && obsPrec.presion_valor_pa
+                ? obsPrec.presion_valor_pa
+                : ((ubicInicio.presion_valor_pa || 840.0) + (ubicDestino.presion_valor_pa || 840.0)) / 2.0;
+
+            // 3. Velocidad efectiva de desplazamiento EVA (m/s y km/h) segun tabla MEIS Seccion 4:
+            // v_0 = 0.85 m/s; eta = 1.0 -> 100% (0.85 m/s), eta = 1.3 -> 87.7% (0.75 m/s), eta = 1.8 -> 74.5% (0.63 m/s)
+            const v0Ms = PARAMETROS_ATMOSFERICOS.velocidad_base_v0_ms || 0.85;
+            const factorDeslizamientoVel = etaEfectivo >= 1.75 ? 0.745 : (etaEfectivo >= 1.2 ? 0.877 : 1.0);
+            const factorPendienteVel = Math.max(0.45, 1.0 - 0.022 * Math.abs(pendienteEfectiva));
+            const vEfMs = Math.max(0.28, v0Ms * factorDeslizamientoVel * factorPendienteVel * (hayTormenta ? 0.85 : 1.0));
+            const velocidadRealKmh = vEfMs * 3.6;
+            const tiempoHoras = distanciaKm / velocidadRealKmh;
+
+            // 4. Potencia Metabolica Humana M_dot_EVA (W_th) - Modelo Pandolf (1977) en Marte (0.38g, gamma_g = 0.3783, f_g = 0.6892) + k_suit = 1.5
+            const mB = Math.max(40.0, masaCorporalKg || 80.0);
+            const mS = Math.max(20.0, masaTrajeKg || 65.0);
+            const mTot = mB + mS;
+            const gammaG = PARAMETROS_ATMOSFERICOS.gamma_g || 0.3783;
+            const fG = PARAMETROS_ATMOSFERICOS.factor_locomocion_fg || 0.6892;
+            const kSuit = PARAMETROS_ATMOSFERICOS.factor_rigidez_traje_k_suit || 1.5;
+
+            // Gasto metabolico base de pie en Marte (192.4 W_th para mB=80 kg, mS=65 kg)
+            const mDotStandWth = 1.5 * mB + 2.0 * mTot * Math.pow(mS / mB, 2) * gammaG;
+
+            // Costo de locomocion horizontal y ascenso por pendiente G (%)
+            const gradePct = Math.tan((pendienteEfectiva * Math.PI) / 180.0) * 100.0;
+            const factorPresionTraje = 1.0 + Math.max(0.0, (610.0 - presionMediaPa) / 3000.0);
+            const trabajoLocomocionWth = kSuit * etaEfectivo * mTot * (
+                0.70 * Math.pow(vEfMs, 2) * fG +
+                0.35 * vEfMs * Math.max(0.0, gradePct) * gammaG
+            ) * factorPresionTraje;
+
+            const mDotEvaWth = Math.min(500.0, mDotStandWth + trabajoLocomocionWth);
+
+            // 5. Consumo de Oxigeno (Ecuacion de Weir c_O2 = 0.2527 g/Wh_th + fuga estructural PLSS 8.0 g/h)
+            // En reposo (192.4 W_th) = 56.6 g/h; en marcha EVA nominal (300 W_th) = 83.8 g/h
+            const cO2 = PARAMETROS_ATMOSFERICOS.constante_calorimetrica_c_o2 || 0.2527;
+            const fugaO2Gh = PARAMETROS_ATMOSFERICOS.tasa_fuga_traje_o2_gh || 8.0;
+            const tasaO2GramosHora = mDotEvaWth * cO2 + fugaO2Gh;
+            const o2ConsumidoGramos = tiempoHoras * tasaO2GramosHora;
+            // Equivalencia volumetrica STP: 665.5 L STP / 950 g = 0.7005 L/g
+            const tasaO2LitrosHora = tasaO2GramosHora * 0.7005;
+            const o2ConsumidoL = o2ConsumidoGramos * 0.7005;
+
+            // 6. Potencia Electrica del Traje PLSS (W_e) y Energia Electrica (Wh_e / kWh_e) - Tabla MEIS Seccion 3 y 5:
+            // P_elec_base = 95 W_e (45 LSS + 15 LCVG + 35 Avionica)
+            // + 0.03 W_e por cada W_th metabolico (LCVG) + 0.04 W_e por cada W_th sobre 250 W_th (aminas RCA)
+            // + Calefaccion ambiental bajo 240 K: 0.65 W_e/K * max(0, 240 - T_reg)
+            // + Penalizacion electrica por polvo: 5 W_e nominal (10 W_e en alta susceptibilidad / tormenta)
+            const pElecBaseWe = PARAMETROS_ATMOSFERICOS.potencia_elec_base_plss_we || 95.0;
+            const pPumpDynamicWe = 0.03 * mDotEvaWth;
+            const pLssDynamicWe = 0.04 * Math.max(0.0, mDotEvaWth - 250.0);
+            const pCalefaccionWe = 0.65 * Math.max(0.0, 240.0 - tempMediaK);
+            const pPolvoWe = (hayTormenta || hayPrecaucion || ubicDestino.id_ubicacion === 'hellas_planitia') ? 10.0 : 5.0;
+
+            const potenciaElectricaPlssWe = pElecBaseWe + pPumpDynamicWe + pLssDynamicWe + pCalefaccionWe + pPolvoWe;
+            const energiaPlssWhe = tiempoHoras * potenciaElectricaPlssWe;
+            const energiaKwh = energiaPlssWhe / 1000.0;
+
+            // Escala de excursion EVA individual (ventana nominal ~8 h EVA para tanque de 950 g O2 y bateria de 1100 Wh_e)
+            // En ascenso a zonas no seguras de gran altitud/crater (Olympus Mons +21,229 m o Hellas Planitia -7,152 m),
+            // el esfuerzo de ascenso y presurizacion hipobarica incrementa el desgaste antes de llegar a la cima.
+            // Si ya recargo en un refugio intermedio de emergencia (yaRecargoEnEmergencia), su tanque recargado al 100%
+            // desde el refugio cercano le permite culminar el tramo final hacia el objetivo principal.
+            const factorAscensoNoRefugio = (!ubicDestino.es_refugio)
+                ? ((typeof yaRecargoEnEmergencia !== 'undefined' && yaRecargoEnEmergencia) ? 0.90 : 1.38)
+                : 1.0;
+            const horasEvaSortieO2 = (tiempoHoras / 340.0) * factorAscensoNoRefugio;
+            const horasEvaSortieBat = (tiempoHoras / 365.0) * factorAscensoNoRefugio;
+            const o2EvaGramos = horasEvaSortieO2 * tasaO2GramosHora;
+            const energiaEvaWhe = horasEvaSortieBat * potenciaElectricaPlssWe;
+
+            const probTormenta = hayTormenta
+                ? PARAMETROS_ATMOSFERICOS.prob_tormenta_emergencia
+                : PARAMETROS_ATMOSFERICOS.prob_tormenta_arena_base;
+            const probRiesgoTramo = Math.min(
+                0.95,
+                1.0 - ((1.0 - interseccion.maxProbAccidente) * (1.0 - probTormenta * 0.5))
+            );
+
+            // El costo de A* busca el camino mas rapido (menor tiempo/distancia) esquivando los "Esquivar"
+            const costoOptimo = distanciaKm;
+
+            const avisosPrecaucion = interseccion.obstaculosPrecaucion.map(
+                o => `PRECAUCION EN HITBOX: Paso por ${o.nombre} (${o.tipo_riesgo} | Pendiente: ${o.pendiente_estimada_grados} deg | Eta: ${o.factor_terreno_eta || 1.8})`
+            );
+
+            return {
+                distancia_km: Number(distanciaKm.toFixed(2)),
+                costo_optimo: Number(costoOptimo.toFixed(2)),
+                velocidad_media_ms: Number(vEfMs.toFixed(2)),
+                velocidad_media_kmh: Number(velocidadRealKmh.toFixed(2)),
+                tiempo_horas: Number(tiempoHoras.toFixed(2)),
+                potencia_metabolica_wth: Number(mDotEvaWth.toFixed(1)),
+                potencia_electrica_we: Number(potenciaElectricaPlssWe.toFixed(1)),
+                tasa_o2_g_hora: Number(tasaO2GramosHora.toFixed(1)),
+                o2_consumido_g: Number(o2ConsumidoGramos.toFixed(1)),
+                o2_consumido_l: Number(o2ConsumidoL.toFixed(2)),
+                o2_eva_g: Number(o2EvaGramos.toFixed(1)),
+                tasa_o2_l_hora: Number(tasaO2LitrosHora.toFixed(2)),
+                energia_usada_whe: Number(energiaPlssWhe.toFixed(1)),
+                energia_usada_kwh: Number(energiaKwh.toFixed(2)),
+                energia_eva_whe: Number(energiaEvaWhe.toFixed(1)),
+                pendiente_max_grados: Number(pendienteEfectiva.toFixed(2)),
+                factor_terreno_eta: etaEfectivo,
+                factor_esfuerzo_astronauta: Number((mDotEvaWth / 300.0).toFixed(2)),
+                prob_supervivencia: Number((1.0 - probRiesgoTramo).toFixed(4)),
+                avisos_precaucion_tramo: avisosPrecaucion
+            };
+        }
+
+        function ejecutarAStarLocal(idInicio, idDestino, puntoInicioCustom = null) {
+            const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+            const ubicInicio = todasLasUbicaciones.find(u => u.id_ubicacion === idInicio) || UBICACIONES_PRINCIPALES[0];
+            const ubicDestino = todasLasUbicaciones.find(u => u.id_ubicacion === idDestino) || UBICACIONES_PRINCIPALES[3];
+
+            const masaCorporalKg = parseFloat(document.getElementById('input-peso').value) || 80;
+            const masaTrajeKg = parseFloat(document.getElementById('input-carga').value) || 65;
+
+            const nodos = construirGrafoNavegacionAStar(puntoInicioCustom, idInicio, idDestino);
+            const nodoInicioId = puntoInicioCustom ? 'posicion_actual_muneco' : idInicio;
+            const meta = nodos[idDestino];
+
+            // Evaluar que habria pasado en linea recta directa
+            const evalRecta = evaluarInterseccionTramoAStar(nodos[nodoInicioId], meta, idInicio, idDestino);
+
+            const idsNodos = Object.keys(nodos);
+            const gScore = {[nodoInicioId]: 0.0};
+            const fScore = {
+                [nodoInicioId]: calcularDistanciaMarteKm(nodos[nodoInicioId].latitud, nodos[nodoInicioId].longitud, meta.latitud, meta.longitud)
+            };
+            const vinoDe = {};
+            const abiertos = new Set([nodoInicioId]);
+            const cerrados = new Set();
+
+            while (abiertos.size > 0) {
+                let actual = null;
+                let menorF = Infinity;
+                abiertos.forEach(id => {
+                    const f = fScore[id] ?? Infinity;
+                    if (f < menorF) {
+                        menorF = f;
+                        actual = id;
+                    }
+                });
+
+                if (!actual || actual === idDestino) break;
+                abiertos.delete(actual);
+                cerrados.add(actual);
+
+                for (const sigId of idsNodos) {
+                    if (sigId === actual || cerrados.has(sigId)) continue;
+
+                    const met = calcularRendimientoYCostoTramo(
+                        nodos[actual],
+                        nodos[sigId],
+                        ubicInicio,
+                        ubicDestino,
+                        idInicio,
+                        idDestino,
+                        masaCorporalKg,
+                        masaTrajeKg
+                    );
+                    if (!met) continue;
+
+                    const tentativoG = gScore[actual] + met.costo_optimo;
+                    if (tentativoG < (gScore[sigId] ?? Infinity)) {
+                        vinoDe[sigId] = {prev: actual, met};
+                        gScore[sigId] = tentativoG;
+                        fScore[sigId] = tentativoG + calcularDistanciaMarteKm(
+                            nodos[sigId].latitud, nodos[sigId].longitud,
+                            meta.latitud, meta.longitud
+                        );
+                        abiertos.add(sigId);
+                    }
+                }
+            }
+
+            if (nodoInicioId !== idDestino && !vinoDe[idDestino]) {
+                return null;
+            }
+
+            const rutaIds = [idDestino];
+            const tramos = [];
+            const alertasRuta = [];
+            let probExitoAcum = 1.0;
+
+            let curr = idDestino;
+            while (curr !== nodoInicioId) {
+                const paso = vinoDe[curr];
+                probExitoAcum *= paso.met.prob_supervivencia;
+                paso.met.avisos_precaucion_tramo.forEach(av => {
+                    if (!alertasRuta.includes(av)) alertasRuta.push(av);
+                });
+                tramos.push(paso.met);
+                rutaIds.push(paso.prev);
+                curr = paso.prev;
+            }
+
+            rutaIds.reverse();
+            tramos.reverse();
+
+            evalRecta.obstaculosEsquivar.forEach(obsEsq => {
+                const msg = `ESQUIVADO A* OBLIGATORIO: Rodeo circular aplicado para evitar hitbox de ${obsEsq.nombre} (${obsEsq.tipo_riesgo})`;
+                if (!alertasRuta.includes(msg)) alertasRuta.unshift(msg);
+            });
+
+            const coordenadasRuta = rutaIds.map(nid => ({
+                id: nid,
+                nombre: nodos[nid].nombre,
+                latitud: nodos[nid].latitud,
+                longitud: nodos[nid].longitud
+            }));
+
+            const distTotal = Number(tramos.reduce((acc, d) => acc + d.distancia_km, 0).toFixed(2));
+            const tiempoTotal = Number(tramos.reduce((acc, d) => acc + d.tiempo_horas, 0).toFixed(2));
+            const o2TotalG = Number(tramos.reduce((acc, d) => acc + (d.o2_consumido_g || 0), 0).toFixed(1));
+            const o2Total = Number(tramos.reduce((acc, d) => acc + d.o2_consumido_l, 0).toFixed(2));
+            const o2EvaTotalG = Number(tramos.reduce((acc, d) => acc + (d.o2_eva_g || 0), 0).toFixed(1));
+            const energiaTotalWhe = Number(tramos.reduce((acc, d) => acc + (d.energia_usada_whe || 0), 0).toFixed(1));
+            const energiaTotal = Number(tramos.reduce((acc, d) => acc + d.energia_usada_kwh, 0).toFixed(2));
+            const energiaEvaTotalWhe = Number(tramos.reduce((acc, d) => acc + (d.energia_eva_whe || 0), 0).toFixed(1));
+            const numT = Math.max(1, tramos.length);
+            const potMetMediaWth = Number((tramos.reduce((acc, d) => acc + (d.potencia_metabolica_wth || 300), 0) / numT).toFixed(0));
+            const potElecMediaWe = Number((tramos.reduce((acc, d) => acc + (d.potencia_electrica_we || 125), 0) / numT).toFixed(0));
+            const tasaO2MediaGh = Number((tramos.reduce((acc, d) => acc + (d.tasa_o2_g_hora || 83.8), 0) / numT).toFixed(1));
+            const velMediaMs = Number((tramos.reduce((acc, d) => acc + (d.velocidad_media_ms || 0.75), 0) / numT).toFixed(2));
+            const esfuerzoMedio = Number((tramos.reduce((acc, d) => acc + d.factor_esfuerzo_astronauta, 0) / numT).toFixed(2));
+            const fatigaPct = Number(Math.min(100.0, (esfuerzoMedio - 1.0) * 45.0 + (tiempoTotal / 40.0)).toFixed(1));
+
+            return {
+                ubicInicio,
+                ubicDestino,
+                coordenadas_ruta: coordenadasRuta,
+                pasos_nombres: rutaIds.map(nid => nodos[nid].nombre),
+                distancia_total_km: distTotal,
+                distancia_linea_recta_km: Number(calcularDistanciaMarteKm(
+                    nodos[nodoInicioId].latitud, nodos[nodoInicioId].longitud,
+                    meta.latitud, meta.longitud
+                ).toFixed(2)),
+                tiempo_total_horas: tiempoTotal,
+                o2_total_consumido_g: o2TotalG,
+                o2_total_consumido_l: o2Total,
+                o2_eva_total_g: o2EvaTotalG,
+                energia_total_usada_whe: energiaTotalWhe,
+                energia_total_usada_kwh: energiaTotal,
+                energia_eva_total_whe: energiaEvaTotalWhe,
+                potencia_metabolica_media_wth: potMetMediaWth,
+                potencia_electrica_media_we: potElecMediaWe,
+                tasa_o2_media_gh: tasaO2MediaGh,
+                velocidad_media_ms: velMediaMs,
+                esfuerzo_medio: esfuerzoMedio,
+                fatiga_pct: fatigaPct,
+                alertas_ruta: alertasRuta,
+                evalRecta,
+                nodoInicioLatLng: L.latLng(nodos[nodoInicioId].latitud, nodos[nodoInicioId].longitud)
+            };
+        }
+
+        // =====================================================================
+        // PARTE 6: SISTEMA AUTOMATICO DE TORMENTAS DE ARENA (30% PROB / HASTA 3 POR MINUTO)
+        // =====================================================================
+        let contadorIdTormenta = 1;
+
+        function dibujarTormentasActivasEnMapa() {
+            grupoTormentas.clearLayers();
+            tormentasActivas.forEach(t => {
+                const radioLeaflet = radioMarteKmAMetrosLeaflet(t.radioKmMarte);
+
+                L.circle([t.lat, t.lng], {
+                    color: '#ff2288',
+                    fillColor: '#ff0055',
+                    fillOpacity: 0.28,
+                    radius: radioLeaflet,
+                    weight: 1.5,
+                    dashArray: '8, 6',
+                    interactive: false
+                }).addTo(grupoTormentas);
+
+                const etiquetaTormenta = L.divIcon({
+                    className: '',
+                    html: `<div class="pin-tormenta">${t.nombre.toUpperCase()} (${t.radioKmMarte} km)</div>`,
+                    iconSize: [165, 22],
+                    iconAnchor: [82, 11]
+                });
+
+                L.marker([t.lat, t.lng], {
+                    icon: etiquetaTormenta,
+                    interactive: false
+                }).addTo(grupoTormentas);
+            });
+
+            const overlay = document.getElementById('overlay-tormenta');
+            if (overlay) {
+                if (tormentasActivas.length > 0) {
+                    overlay.classList.add('activo');
+                } else {
+                    overlay.classList.remove('activo');
+                }
+            }
+        }
+
+        function crearTormentaAleatoriaUnica() {
+            if (tormentasActivas.length >= 3) return false;
+
+            const idDestino = document.getElementById('select-destino').value;
+            const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+            const destino = todasLasUbicaciones.find(u => u.id_ubicacion === idDestino) || UBICACIONES_PRINCIPALES[3];
+            const posMuneco = marcadorAstronauta.getLatLng();
+            const refugios = [
+                ...UBICACIONES_PRINCIPALES.filter(u => u.es_refugio),
+                ...ZONAS_SEGURAS_AUXILIARES
+            ];
+
+            let latRandom = 0;
+            let lngRandom = 0;
+            let radioKm = Math.round(280 + Math.random() * 360);
+
+            for (let intento = 0; intento < 12; intento++) {
+                if (Math.random() < 0.65) {
+                    const tRandom = 0.25 + Math.random() * 0.50;
+                    latRandom = posMuneco.lat + (destino.lat_central - posMuneco.lat) * tRandom + (Math.random() * 10 - 5);
+                    lngRandom = normalizarLongitud(posMuneco.lng + (destino.lon_central - posMuneco.lng) * tRandom + (Math.random() * 14 - 7));
+                } else {
+                    latRandom = (Math.random() * 86) - 43;
+                    lngRandom = (Math.random() * 290) - 165;
+                }
+
+                latRandom = Math.max(-55, Math.min(58, Number(latRandom.toFixed(2))));
+                lngRandom = Math.max(-172, Math.min(132, Number(lngRandom.toFixed(2))));
+
+                // Evitar que la tormenta tape directamente el centro de un refugio seguro
+                const tapaRefugio = refugios.some(
+                    r => calcularDistanciaMarteKm(latRandom, lngRandom, r.lat_central, r.lon_central) <= (radioKm * 1.12)
+                );
+                if (!tapaRefugio) break;
+            }
+
+            const duracionVidaMs = Math.round(7000 + Math.random() * 3000);
+            const nuevaTormenta = {
+                id: `tormenta_auto_${contadorIdTormenta++}`,
+                nombre: `Tormenta #${tormentasActivas.length + 1}`,
+                lat: latRandom,
+                lng: lngRandom,
+                radioKmMarte: radioKm,
+                velocidadVientoKmH: Math.round(95 + Math.random() * 85),
+                expiraEnMs: performance.now() + duracionVidaMs
+            };
+
+            tormentasActivas.push(nuevaTormenta);
+            return true;
+        }
+
+        function reaccionarACambioDeTormentas() {
+            dibujarTormentasActivasEnMapa();
+            const enMovimiento = animacionMovimiento !== null;
+            if (enMovimiento) {
+                actualizarRutaWaze(true);
+                if (planDeViajeActual && planDeViajeActual.waypoints.length >= 2) {
+                    moverAstronautaPorWaypoints(planDeViajeActual);
+                }
+            } else if (esperandoFinTormentaEnRefugio && objetivoPrincipalMisionId) {
+                // Estaba esperando en un refugio intermedio (ya recargado al 100%) a que pasara la tormenta:
+                // revisar si ya se despejo la tormenta para retomar su camino con A* hacia el objetivo principal
+                const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+                const objPrincipal = todasLasUbicaciones.find(u => u.id_ubicacion === objetivoPrincipalMisionId);
+                const posActual = marcadorAstronauta.getLatLng();
+                if (objPrincipal && !rutaDirectaChocaConTormenta(posActual, objPrincipal)) {
+                    esperandoFinTormentaEnRefugio = false;
+                    retomarCaminoHaciaObjetivoPrincipal();
+                } else {
+                    actualizarRutaWaze(true);
+                }
+            } else {
+                actualizarRutaWaze(false);
+                verificarEstadoZona(marcadorAstronauta.getLatLng());
+            }
+        }
+
+        // Ciclo automatico: evalua con 55% de probabilidad de aparicion, pudiendo generar
+        // de 1 a 3 tormentas simultaneas a la vez en distintas zonas, cada una con duracion de 7 a 10 segundos.
+        function iniciarCicloTormentasAutomaticas() {
+            setInterval(() => {
+                if (tormentasActivas.length < 3 && Math.random() < 0.55) {
+                    const maxNuevas = 3 - tormentasActivas.length;
+                    const cantidadSimultanea = Math.floor(Math.random() * maxNuevas) + 1;
+                    let algunaCreada = false;
+                    for (let i = 0; i < cantidadSimultanea; i++) {
+                        if (crearTormentaAleatoriaUnica()) {
+                            algunaCreada = true;
+                        }
+                    }
+                    if (algunaCreada) {
+                        reaccionarACambioDeTormentas();
+                    }
+                }
+            }, 15000);
+
+            setInterval(() => {
+                const ahora = performance.now();
+                const prevLen = tormentasActivas.length;
+                tormentasActivas = tormentasActivas.filter(t => ahora < t.expiraEnMs);
+                if (tormentasActivas.length !== prevLen) {
+                    reaccionarACambioDeTormentas();
+                }
+            }, 500);
+        }
+
+        // ==========================================
+        // ANIMACION Y CIERRE DE CORTINILLA (3 SEG)
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            const statusText = document.getElementById('splash-status');
+
+            // Animacion de texto estilo arranque
+            setTimeout(() => {if (statusText) statusText.innerText = "Cargando Base de Datos SQLite...";}, 800);
+            setTimeout(() => {if (statusText) statusText.innerText = "Cargando Mapa Tactico 2D...";}, 1500);
+            setTimeout(() => {if (statusText) statusText.innerText = "Sincronizando Orbitador 3D...";}, 2200);
+            setTimeout(() => {if (statusText) statusText.innerText = "SISTEMA LISTO!";}, 2700);
+
+            // Desvanecer despues de 3 segundos
+            setTimeout(() => {
+                const splash = document.getElementById('splash-screen');
+                if (splash) {
+                    splash.classList.add('oculto');
+                }
+            }, 3200);
+        });
+
+        // =====================================================================
+        // PARTE 7: INTERFAZ WAZE A*, TELEMETRIA Y VELOCIDAD POR KM
+        // =====================================================================
+        function poblarControlesYMapaDesdeEstado() {
+            const selOrigen = document.getElementById('select-origen');
+            const selDestino = document.getElementById('select-destino');
+            selOrigen.innerHTML = '';
+            selDestino.innerHTML = '';
+            UBICACIONES_PRINCIPALES.forEach((u, i) => {
+                const etiqueta = `${u.nombre} (${u.clasificacion_excel})`;
+                selOrigen.innerHTML += `<option value="${u.id_ubicacion}" ${i === 0 ? 'selected' : ''}>${etiqueta}</option>`;
+                selDestino.innerHTML += `<option value="${u.id_ubicacion}" ${i === 1 ? 'selected' : ''}>${etiqueta}</option>`;
+            });
+
+            if (UBICACIONES_PRINCIPALES.length > 0) {
+                const origenInicial = UBICACIONES_PRINCIPALES[0];
+                marcadorAstronauta.setLatLng([origenInicial.lat_central, origenInicial.lon_central]);
+            }
+
+            globoMarte.pointsData(UBICACIONES_PRINCIPALES);
+            actualizarNomenclaturaGlobo3D();
+            renderizarElementosMapa();
+            renderizarNomenclaturaMapa2D();
+            actualizarRutaWaze(false);
+        }
+
+        function inicializarControlesWaze() {
+            if (window.innerWidth <= 680) {
+                const hud = document.getElementById('hud');
+                const btnHud = document.getElementById('btn-toggle-hud');
+                if (hud) hud.classList.add('cerrado');
+                if (btnHud) btnHud.innerText = ' MOSTRAR SISTEMA VITAL ';
+            }
+
+            poblarControlesYMapaDesdeEstado();
+            iniciarCicloTormentasAutomaticas();
+
+            // Sincronizar con servidor_api.py si esta corriendo
+            const urlDatos = window.location.protocol.startsWith('http')
+                ? '/api/datos-mapa'
+                : 'http://localhost:8000/api/datos-mapa';
+            fetch(urlDatos)
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.estado === 'ok') {
+
+                        if (data.zonas_exploracion) {
+                            UBICACIONES_PRINCIPALES = data.zonas_exploracion;
+                        }
+                        if (data.zonas_seguras_auxiliares) {
+                            ZONAS_SEGURAS_AUXILIARES = data.zonas_seguras_auxiliares;
+                        }
+                        if (data.obstaculos_topograficos) {
+                            ZONAS_OBSTACULOS = data.obstaculos_topograficos;
+                        }
+                        if (data.parametros_atmosfericos) {
+                            Object.assign(PARAMETROS_ATMOSFERICOS, data.parametros_atmosfericos);
+                        }
+                        if (data.nomenclatura && data.nomenclatura.length > 0) {
+                            NOMENCLATURA_MARTE = data.nomenclatura;
+                        }
+
+                        poblarControlesYMapaDesdeEstado();
+                    }
+                })
+                .catch(err => console.log("Usando datos sincronizados locales:", err));
+        }
+
+        // Estado Vital en Tiempo Real del Astronauta (Valores Oficiales MEIS_Datos_Base_y_Perfiles_Marcianos.xlsx):
+        // - Capacidad Tanque O2 Primario Utilizable (O2_cap): 950.0 g (665.5 L STP, autonomia ~8 h EVA, reserva min 20% = 190 g)
+        // - Capacidad Bateria PLSS Nominal (E_bat,cap): 1100.0 Wh_e (1.10 kWh_e, autonomia ~8 h EVA, reserva min 20% = 220 Wh_e)
+        // - En reposo de pie en Marte (M_dot_stand = 192.4 W_th): O2 = 56.6 g/h, Potencia PLSS = 100.8 W_e
+        // - En marcha EVA nominal (M_dot_EVA,nom = 300.0 W_th): O2 = 83.8 g/h, Potencia PLSS = 109.0 a 155.0 W_e
+        const estadoVitalEVA = {
+            capO2MaxG: 950.0,
+            capBatMaxWhe: 1100.0,
+            o2RestanteG: 950.0,
+            batRestanteWhe: 1100.0,
+            enReserva: false,
+            potMetWth: 192.4,
+            potElecWe: 100.8,
+            tasaO2Gh: 56.6,
+            velMs: 0.0
+        };
+
+        function actualizarBarrasVitalesHUD() {
+            const pctO2 = Math.max(0, Math.min(100, Math.round((estadoVitalEVA.o2RestanteG / estadoVitalEVA.capO2MaxG) * 100)));
+            const pctBat = Math.max(0, Math.min(100, Math.round((estadoVitalEVA.batRestanteWhe / estadoVitalEVA.capBatMaxWhe) * 100)));
+
+            // Segun regla MEIS (< 20% en ambos o agotamiento primario),
+            // el astronauta NO muere: entra en soporte vital de reserva y parpadea "ESTAS EN RESERVA"
+            const reservaActiva = ((pctO2 < 20 && pctBat < 20) || pctO2 < 16 || pctBat < 16 || estadoVitalEVA.enReserva || estadoVitalEVA.o2RestanteG <= 0 || estadoVitalEVA.batRestanteWhe <= 0);
+            estadoVitalEVA.enReserva = reservaActiva;
+
+            const txtO2 = document.getElementById('txt-oxigeno');
+            const barO2 = document.getElementById('bar-oxigeno');
+            const txtBat = document.getElementById('txt-energia');
+            const barBat = document.getElementById('bar-energia');
+            const txtRad = document.getElementById('txt-radiacion');
+            const boxReservaHud = document.getElementById('alerta-reserva-hud');
+            const badgeReservaAstro = document.getElementById('badge-reserva-astro');
+
+            if (txtO2) {
+                if (estadoVitalEVA.o2RestanteG > 0.5) {
+                    const litrosRestantes = (estadoVitalEVA.o2RestanteG * 0.7005).toFixed(1);
+                    txtO2.innerText = `${pctO2}% (${Math.round(estadoVitalEVA.o2RestanteG)} g / ${litrosRestantes} L)`;
+                } else {
+                    txtO2.innerText = `0% (ESTAS EN RESERVA)`;
+                }
+            }
+            if (barO2) {
+                barO2.style.width = `${Math.max(4, pctO2)}%`;
+                barO2.style.background = pctO2 < 20 ? '#ff2222' : (pctO2 <= 45 ? '#ffaa00' : '#00ffcc');
+            }
+
+            if (txtBat) {
+                if (estadoVitalEVA.batRestanteWhe > 0.5) {
+                    txtBat.innerText = `${pctBat}% (${Math.round(estadoVitalEVA.batRestanteWhe)} Wh_e)`;
+                } else {
+                    txtBat.innerText = `0% (ESTAS EN RESERVA)`;
+                }
+            }
+            if (barBat) {
+                barBat.style.width = `${Math.max(4, pctBat)}%`;
+                barBat.style.background = pctBat < 20 ? '#ff2222' : (pctBat <= 45 ? '#ffaa00' : '#00d4ff');
+            }
+
+            if (txtRad) {
+                txtRad.innerText = `MEIS: ${Math.round(estadoVitalEVA.potMetWth)} W_th | ${Math.round(estadoVitalEVA.potElecWe)} W_e | O2: ${estadoVitalEVA.tasaO2Gh.toFixed(1)} g/h | Vel: ${estadoVitalEVA.velMs.toFixed(2)} m/s`;
+            }
+
+            if (boxReservaHud) {
+                if (reservaActiva) {
+                    boxReservaHud.classList.add('activa');
+                } else {
+                    boxReservaHud.classList.remove('activa');
+                }
+            }
+            if (badgeReservaAstro) {
+                if (reservaActiva) {
+                    badgeReservaAstro.classList.add('activa');
+                } else {
+                    badgeReservaAstro.classList.remove('activa');
+                }
+            }
+        }
+
+        function recargarTanquesZonaSegura(nombreZona = '') {
+            estadoVitalEVA.o2RestanteG = estadoVitalEVA.capO2MaxG;
+            estadoVitalEVA.batRestanteWhe = estadoVitalEVA.capBatMaxWhe;
+            estadoVitalEVA.enReserva = false;
+            estadoVitalEVA.potMetWth = 192.4;
+            estadoVitalEVA.potElecWe = 100.8;
+            estadoVitalEVA.tasaO2Gh = 56.6;
+            estadoVitalEVA.velMs = 0.0;
+            actualizarBarrasVitalesHUD();
+
+            if (nombreZona) {
+                const txtZona = document.getElementById('txt-zona');
+                if (txtZona) {
+                    txtZona.style.color = '#00ffaa';
+                    txtZona.innerText = `ZONA SEGURA: ${nombreZona.toUpperCase()} (RECARGADO AL 100%)`;
+                }
+            }
+        }
+
+        let planDeViajeActual = null;
+        let objetivoPrincipalMisionId = null;
+        let esperandoFinTormentaEnRefugio = false;
+        let yaRecargoEnEmergencia = false;
+        let timerRetomarMision = null;
+
+        function rutaDirectaChocaConTormenta(pIni, destObj) {
+            if (!destObj || tormentasActivas.length === 0) return false;
+            for (const t of tormentasActivas) {
+                for (let p = 1; p <= 40; p++) {
+                    const frac = p / 40.0;
+                    const latI = pIni.lat + frac * (destObj.lat_central - pIni.lat);
+                    const lonI = normalizarLongitud(pIni.lng + frac * (destObj.lon_central - pIni.lng));
+                    if (calcularDistanciaMarteKm(latI, lonI, t.lat, t.lng) <= t.radioKmMarte * 1.05) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function obtenerRefugioMasCercanoAStar(idOrigen, puntoCustom, idEvitarPorTormenta = null) {
+            const refugios = [
+                ...UBICACIONES_PRINCIPALES.filter(u => u.es_refugio),
+                ...ZONAS_SEGURAS_AUXILIARES
+            ];
+            let mejorRefugioLibre = null;
+            let menorDistLibre = Infinity;
+            let mejorRefugioCualquiera = refugios[0];
+            let menorDistCualquiera = Infinity;
+
+            const pIni = puntoCustom || marcadorAstronauta.getLatLng();
+
+            refugios.forEach(ref => {
+                const resRef = ejecutarAStarLocal(idOrigen, ref.id_ubicacion, puntoCustom);
+                if (!resRef) return;
+
+                if (resRef.distancia_total_km < menorDistCualquiera) {
+                    menorDistCualquiera = resRef.distancia_total_km;
+                    mejorRefugioCualquiera = ref;
+                }
+
+                // Si estamos desviando por tormenta que bloquea idEvitarPorTormenta (ej. iba de Utopia a Arcadia),
+                // priorizar otro refugio cercano cuya linea no choque con la tormenta activa
+                const esElMismoBloqueado = (idEvitarPorTormenta && ref.id_ubicacion === idEvitarPorTormenta);
+                const chocaTormentaRef = rutaDirectaChocaConTormenta(pIni, ref);
+
+                if (!esElMismoBloqueado && !chocaTormentaRef && resRef.distancia_total_km < menorDistLibre) {
+                    menorDistLibre = resRef.distancia_total_km;
+                    mejorRefugioLibre = ref;
+                }
+            });
+            return mejorRefugioLibre || mejorRefugioCualquiera;
+        }
+
+        function retomarCaminoHaciaObjetivoPrincipal() {
+            if (!objetivoPrincipalMisionId) return;
+            if (timerRetomarMision) {
+                clearTimeout(timerRetomarMision);
+                timerRetomarMision = null;
+            }
+            esperandoFinTormentaEnRefugio = false;
+            document.getElementById('select-destino').value = objetivoPrincipalMisionId;
+
+            const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+            const objPrincipal = todasLasUbicaciones.find(u => u.id_ubicacion === objetivoPrincipalMisionId);
+            const txtHitbox = document.getElementById('txt-hitbox-activo');
+            if (txtHitbox && objPrincipal) {
+                txtHitbox.style.color = '#00ffcc';
+                txtHitbox.innerText = `RETOMANDO A* AL OBJETIVO PRINCIPAL: ${objPrincipal.nombre.toUpperCase()}`;
+            }
+
+            actualizarRutaWaze(true, false);
+            if (planDeViajeActual && planDeViajeActual.waypoints.length >= 2) {
+                moverAstronautaPorWaypoints(planDeViajeActual);
+            }
+        }
+
+        function alCambiarOrigen() {
+            if (animacionMovimiento) {
+                cancelAnimationFrame(animacionMovimiento);
+                animacionMovimiento = null;
+            }
+            if (timerRetomarMision) {
+                clearTimeout(timerRetomarMision);
+                timerRetomarMision = null;
+            }
+            esperandoFinTormentaEnRefugio = false;
+            yaRecargoEnEmergencia = false;
+            const idOrigen = document.getElementById('select-origen').value;
+            const origen = UBICACIONES_PRINCIPALES.find(u => u.id_ubicacion === idOrigen) || UBICACIONES_PRINCIPALES[0];
+            marcadorAstronauta.setLatLng([origen.lat_central, origen.lon_central]);
+            if (origen.es_refugio) {
+                recargarTanquesZonaSegura(origen.nombre);
+            } else {
+                actualizarBarrasVitalesHUD();
+            }
+            actualizarRutaWaze(false);
+        }
+
+        function actualizarRutaWaze(desdePosicionActual = false, forzarEvacuacionReserva = false) {
+            const idOrigen = document.getElementById('select-origen').value;
+            let idDestino = objetivoPrincipalMisionId && (desdePosicionActual || animacionMovimiento !== null || esperandoFinTormentaEnRefugio)
+                ? objetivoPrincipalMisionId
+                : document.getElementById('select-destino').value;
+            const kmPorSegundo = Math.max(10, parseFloat(document.getElementById('input-velocidad-km').value) || 100);
+
+            const puntoCustom = desdePosicionActual ? marcadorAstronauta.getLatLng() : null;
+            grupoRuta.clearLayers();
+
+            const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+            const origenObj = todasLasUbicaciones.find(u => u.id_ubicacion === idOrigen) || UBICACIONES_PRINCIPALES[0];
+            const destObj = todasLasUbicaciones.find(u => u.id_ubicacion === idDestino) || UBICACIONES_PRINCIPALES[1];
+            const pIni = puntoCustom || (origenObj ? L.latLng(origenObj.lat_central, origenObj.lon_central) : L.latLng(0, 0));
+
+            let esEvacuacionReserva = false;
+            let esDesvioRefugioTormenta = false;
+
+            // 1. Si el astronauta entra en RESERVA (<20% de O2 y Energia), el monte u otra zona no segura
+            // NO recarga y no sirve de nada: se manda directamente a la Zona Segura mas cercana con A*
+            if (forzarEvacuacionReserva || estadoVitalEVA.enReserva) {
+                const mejorRefugio = obtenerRefugioMasCercanoAStar(idOrigen, puntoCustom, null);
+                if (mejorRefugio) {
+                    if (destObj && (!destObj.es_refugio || destObj.id_ubicacion !== mejorRefugio.id_ubicacion)) {
+                        L.polyline([[pIni.lat, pIni.lng], [destObj.lat_central, destObj.lon_central]], {
+                            color: '#ffaa00',
+                            weight: 2.5,
+                            opacity: 0.7,
+                            dashArray: '4, 8'
+                        }).bindTooltip(`Pausa hacia ${destObj.nombre} - Evacuando a refugio cercano por Reserva (<20%)`).addTo(grupoRuta);
+                    }
+                    idDestino = mejorRefugio.id_ubicacion;
+                    esEvacuacionReserva = true;
+                    const txtHitbox = document.getElementById('txt-hitbox-activo');
+                    if (txtHitbox) {
+                        txtHitbox.style.color = '#ffcc00';
+                        txtHitbox.innerText = `RESERVA (<20%): Evacuando a refugio ${mejorRefugio.nombre} para recargar`;
+                    }
+                }
+            } else if (tormentasActivas.length > 0 && destObj) {
+                // 2. Si hay tormenta de arena activa y bloquea la linea hacia el objetivo principal,
+                // redirigir al refugio seguro mas cercano libre de la tormenta y re-verificar con A*
+                const chocaConTormenta = rutaDirectaChocaConTormenta(pIni, destObj);
+
+                if (chocaConTormenta) {
+                    L.polyline([[pIni.lat, pIni.lng], [destObj.lat_central, destObj.lon_central]], {
+                        color: '#ff2222',
+                        weight: 2.5,
+                        opacity: 0.65,
+                        dashArray: '5, 8'
+                    }).bindTooltip(`Trayectoria directa a ${destObj.nombre} bloqueada por tormenta de polvo`).addTo(grupoRuta);
+
+                    const mejorRefugio = obtenerRefugioMasCercanoAStar(idOrigen, puntoCustom, destObj.id_ubicacion);
+                    if (mejorRefugio) {
+                        idDestino = mejorRefugio.id_ubicacion;
+                        esDesvioRefugioTormenta = true;
+                        const txtHitbox = document.getElementById('txt-hitbox-activo');
+                        if (txtHitbox) {
+                            txtHitbox.style.color = '#ff3388';
+                            txtHitbox.innerText = `TORMENTA EN RUTA: Evacuando a refugio ${mejorRefugio.nombre}`;
+                        }
+                    }
+                }
+            }
+
+            const resultadoAStar = ejecutarAStarLocal(idOrigen, idDestino, puntoCustom);
+            if (!resultadoAStar) return;
+
+            const {
+                ubicInicio,
+                ubicDestino,
+                coordenadas_ruta,
+                pasos_nombres,
+                distancia_total_km,
+                distancia_linea_recta_km,
+                tiempo_total_horas,
+                o2_total_consumido_g,
+                o2_total_consumido_l,
+                o2_eva_total_g,
+                energia_total_usada_kwh,
+                energia_eva_total_whe,
+                potencia_metabolica_media_wth,
+                potencia_electrica_media_we,
+                tasa_o2_media_gh,
+                velocidad_media_ms,
+                esfuerzo_medio,
+                fatiga_pct,
+                alertas_ruta,
+                evalRecta,
+                nodoInicioLatLng
+            } = resultadoAStar;
+
+            const waypointsLatLng = coordenadas_ruta.map(c => L.latLng(c.latitud, c.longitud));
+
+            // Dibujar polilinea A* (incluyendo el avance en circulo/arco alrededor de hitboxes "Esquivar")
+            L.polyline(waypointsLatLng, {
+                color: '#00ffcc',
+                weight: 4,
+                opacity: 0.92,
+                dashArray: '10, 6'
+            }).addTo(grupoRuta);
+
+            // Calcular tiempo de animacion segun kmPorSegundo
+            const segundosTotales = Math.max(0.5, Number((distancia_total_km / kmPorSegundo).toFixed(1)));
+            const duracionMs = segundosTotales * 1000;
+            const elTiempoAnim = document.getElementById('dato-tiempo-anim');
+            if (elTiempoAnim) elTiempoAnim.innerText = `${segundosTotales} seg`;
+
+            // Si estamos en reposo en una Zona Segura antes de iniciar el viaje, mantener la barra al 100%
+            // (NO restar por adelantado lo que va a quedar: se ira bajando en tiempo real conforme camine)
+            if (!desdePosicionActual && animacionMovimiento === null && ubicInicio && ubicInicio.es_refugio) {
+                estadoVitalEVA.o2RestanteG = estadoVitalEVA.capO2MaxG;
+                estadoVitalEVA.batRestanteWhe = estadoVitalEVA.capBatMaxWhe;
+                estadoVitalEVA.enReserva = false;
+                estadoVitalEVA.potMetWth = 192.4;
+                estadoVitalEVA.potElecWe = 100.8;
+                estadoVitalEVA.tasaO2Gh = 56.6;
+                estadoVitalEVA.velMs = 0.0;
+            }
+            actualizarBarrasVitalesHUD();
+
+            planDeViajeActual = {
+                waypoints: waypointsLatLng,
+                destinoFinal: ubicDestino,
+                distKmMarte: distancia_total_km,
+                duracionMs,
+                o2GastoViajeG: o2_eva_total_g,
+                batGastoViajeWhe: energia_eva_total_whe,
+                potMetMediaWth: potencia_metabolica_media_wth,
+                potElecMediaWe: potencia_electrica_media_we,
+                tasaO2MediaGh: tasa_o2_media_gh,
+                velMediaMs: velocidad_media_ms,
+                esEvacuacionReserva,
+                esDesvioRefugioTormenta
+            };
+        }
+
+        function obtenerPaddingMapaResponsivo() {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const panelWaze = document.getElementById('panel-waze');
+            const hud = document.getElementById('hud');
+            const izqAbierto = panelWaze && !panelWaze.classList.contains('cerrado');
+            const derAbierto = hud && !hud.classList.contains('cerrado');
+
+            if (w <= 680) {
+                return {
+                    paddingTopLeft: [24, 60],
+                    paddingBottomRight: [24, 40]
+                };
+            }
+            if (w <= 1024) {
+                return {
+                    paddingTopLeft: [izqAbierto ? 320 : 40, 55],
+                    paddingBottomRight: [derAbierto ? 295 : 40, 55]
+                };
+            }
+            if (w >= 1800) {
+                return {
+                    paddingTopLeft: [izqAbierto ? 490 : 80, Math.round(h * 0.08)],
+                    paddingBottomRight: [derAbierto ? 450 : 80, Math.round(h * 0.08)]
+                };
+            }
+            return {
+                paddingTopLeft: [izqAbierto ? 395 : 60, 70],
+                paddingBottomRight: [derAbierto ? 350 : 60, 70]
+            };
+        }
+
+        function iniciarViajeWaze(desdePosicionActual = false) {
+            if (timerRetomarMision) {
+                clearTimeout(timerRetomarMision);
+                timerRetomarMision = null;
+            }
+            const idOrigen = document.getElementById('select-origen').value;
+            const origen = UBICACIONES_PRINCIPALES.find(u => u.id_ubicacion === idOrigen) || UBICACIONES_PRINCIPALES[0];
+
+            if (!desdePosicionActual) {
+                objetivoPrincipalMisionId = document.getElementById('select-destino').value;
+                esperandoFinTormentaEnRefugio = false;
+                yaRecargoEnEmergencia = false;
+            }
+
+            // Si inicia el viaje desde una Zona Segura (refugio), asegurar que sale con 100% de Oxigeno (950 g) y Energia (1100 Wh_e)
+            if (!desdePosicionActual && origen.es_refugio) {
+                recargarTanquesZonaSegura(origen.nombre);
+            }
+
+            // En telefonos moviles, al iniciar el recorrido cerramos automaticamente el panel izquierdo para ver el mapa completo
+            if (window.innerWidth <= 680 && !desdePosicionActual) {
+                const panelWaze = document.getElementById('panel-waze');
+                const btnWaze = document.getElementById('btn-mas-waze');
+                if (panelWaze && !panelWaze.classList.contains('cerrado')) {
+                    panelWaze.classList.add('cerrado');
+                    if (btnWaze) btnWaze.classList.remove('abierto');
+                }
+            }
+
+            if (enVista3D) {
+                descenderASuperficie(origen.lat_central, origen.lon_central);
+            }
+
+            actualizarRutaWaze(desdePosicionActual);
+            if (!planDeViajeActual || planDeViajeActual.waypoints.length < 2) return;
+
+            const pad = obtenerPaddingMapaResponsivo();
+            map.fitBounds(L.latLngBounds(planDeViajeActual.waypoints), {
+                paddingTopLeft: pad.paddingTopLeft,
+                paddingBottomRight: pad.paddingBottomRight,
+                maxZoom: 5
+            });
+
+            moverAstronautaPorWaypoints(planDeViajeActual);
+        }
+
+        function moverAstronautaPorWaypoints(plan) {
+            if (!marcadorAstronauta) return;
+            if (animacionMovimiento) {
+                cancelAnimationFrame(animacionMovimiento);
+                animacionMovimiento = null;
+            }
+
+            const puntos = plan.waypoints;
+            const svg = document.getElementById('astro-svg');
+
+            const segmentos = [];
+            let distTotalKm = 0;
+            for (let i = 0; i < puntos.length - 1; i++) {
+                const d = calcularDistanciaMarteKm(puntos[i].lat, puntos[i].lng, puntos[i + 1].lat, puntos[i + 1].lng);
+                distTotalKm += d;
+                segmentos.push({inicio: puntos[i], fin: puntos[i + 1], distKm: d});
+            }
+
+            if (distTotalKm === 0) return;
+
+            const tiempoInicioGlobal = performance.now();
+            const duracionTotalMs = Math.max(300, plan.duracionMs || 1000);
+
+            // Guardar el nivel de Oxigeno (g) y Energia (Wh_e) con el que inicia este trayecto o redireccion por tormenta
+            const o2InicioTramoG = estadoVitalEVA.o2RestanteG;
+            const batInicioTramoWhe = estadoVitalEVA.batRestanteWhe;
+            const gastoTotalO2G = plan.o2GastoViajeG || 350.0;
+            const gastoTotalBatWhe = plan.batGastoViajeWhe || 420.0;
+
+            estadoVitalEVA.potMetWth = plan.potMetMediaWth || 300.0;
+            estadoVitalEVA.potElecWe = plan.potElecMediaWe || 125.0;
+            estadoVitalEVA.tasaO2Gh = plan.tasaO2MediaGh || 83.8;
+            estadoVitalEVA.velMs = plan.velMediaMs || 0.75;
+
+            if (svg) svg.classList.add('caminando');
+
+            function paso(ahora) {
+                const transcurrido = ahora - tiempoInicioGlobal;
+                const progresoGlobal = Math.min(transcurrido / duracionTotalMs, 1);
+
+                const distObjetivo = distTotalKm * progresoGlobal;
+                let acumulado = 0;
+                let segActual = segmentos[segmentos.length - 1];
+                let progresoSegmento = 1;
+
+                for (let i = 0; i < segmentos.length; i++) {
+                    if (acumulado + segmentos[i].distKm >= distObjetivo) {
+                        segActual = segmentos[i];
+                        progresoSegmento = segActual.distKm > 0
+                            ? (distObjetivo - acumulado) / segActual.distKm
+                            : 1;
+                        break;
+                    }
+                    acumulado += segmentos[i].distKm;
+                }
+
+                if (svg) {
+                    if (segActual.fin.lng < segActual.inicio.lng) {
+                        svg.classList.add('mirar-izquierda');
+                    } else {
+                        svg.classList.remove('mirar-izquierda');
+                    }
+                }
+
+                const latActual = segActual.inicio.lat + (segActual.fin.lat - segActual.inicio.lat) * progresoSegmento;
+                const lngActual = segActual.inicio.lng + (segActual.fin.lng - segActual.inicio.lng) * progresoSegmento;
+                const posActual = L.latLng(latActual, lngActual);
+
+                marcadorAstronauta.setLatLng(posActual);
+                verificarEstadoZona(posActual);
+
+                // Desgaste progresivo en tiempo real de Oxigeno y Energia conforme camina el astronauta
+                estadoVitalEVA.o2RestanteG = Math.max(0.0, o2InicioTramoG - (gastoTotalO2G * progresoGlobal));
+                estadoVitalEVA.batRestanteWhe = Math.max(0.0, batInicioTramoWhe - (gastoTotalBatWhe * progresoGlobal));
+                actualizarBarrasVitalesHUD();
+
+                // Si cae en <20% de los dos (estadoVitalEVA.enReserva) y aun no va hacia la zona segura mas cercana,
+                // abortar el viaje actual (ya que el monte / zona peligrosa no recarga y no sirve de nada)
+                // y mandarlo directamente a la Zona Segura mas cercana con A*
+                if (progresoGlobal < 1 && estadoVitalEVA.enReserva && !plan.esEvacuacionReserva) {
+                    animacionMovimiento = null;
+                    actualizarRutaWaze(true, true);
+                    if (planDeViajeActual && planDeViajeActual.waypoints.length >= 2) {
+                        moverAstronautaPorWaypoints(planDeViajeActual);
+                    }
+                    return;
+                }
+
+                const kmRecorridos = Math.round(plan.distKmMarte * progresoGlobal);
+                const segRestantes = Math.max(0, ((duracionTotalMs - transcurrido) / 1000)).toFixed(1);
+                document.getElementById('dato-tiempo-anim').innerText = `${segRestantes} s (${kmRecorridos}/${Math.round(plan.distKmMarte)} km)`;
+
+                if (progresoGlobal < 1) {
+                    animacionMovimiento = requestAnimationFrame(paso);
+                } else {
+                    animacionMovimiento = null;
+                    if (svg) svg.classList.remove('caminando');
+                    document.getElementById('dato-tiempo-anim').innerText = `COMPLETADO (${(duracionTotalMs / 1000).toFixed(1)} seg)`;
+
+                    if (!plan.destinoFinal.es_auxiliar_refugio) {
+                        document.getElementById('select-origen').value = plan.destinoFinal.id_ubicacion;
+                    }
+
+                    // Si llega a una Zona Segura (Arcadia Planitia, Utopia Planitia, Amazonis Planitia o Meridiani Planum),
+                    // se recarga automaticamente todo el Oxigeno (100% / 950 g) y Energia (100% / 1100 Wh_e) y sale de Reserva
+                    if (plan.destinoFinal.es_refugio) {
+                        recargarTanquesZonaSegura(plan.destinoFinal.nombre);
+
+                        // Si este refugio fue una escala de emergencia (por tormenta o reserva <20%) y NO es el objetivo principal,
+                        // en cuanto recarga al 100% y/o se va la tormenta, retoma su camino usando A* hacia el objetivo principal
+                        if (objetivoPrincipalMisionId && plan.destinoFinal.id_ubicacion !== objetivoPrincipalMisionId) {
+                            yaRecargoEnEmergencia = true;
+                            const todasLasUbicaciones = [...UBICACIONES_PRINCIPALES, ...ZONAS_SEGURAS_AUXILIARES];
+                            const objPrincipal = todasLasUbicaciones.find(u => u.id_ubicacion === objetivoPrincipalMisionId);
+                            const txtHitbox = document.getElementById('txt-hitbox-activo');
+
+                            if (objPrincipal && rutaDirectaChocaConTormenta(posActual, objPrincipal)) {
+                                esperandoFinTormentaEnRefugio = true;
+                                if (txtHitbox) {
+                                    txtHitbox.style.color = '#00ffaa';
+                                    txtHitbox.innerText = `REFUGIO SEGURO (100%): Esperando fin de tormenta para retomar A* a ${objPrincipal.nombre}`;
+                                }
+                            } else if (objPrincipal) {
+                                esperandoFinTormentaEnRefugio = false;
+                                if (txtHitbox) {
+                                    txtHitbox.style.color = '#00ffcc';
+                                    txtHitbox.innerText = `RECARGADO AL 100%: Retomando A* hacia objetivo principal ${objPrincipal.nombre}`;
+                                }
+                                timerRetomarMision = setTimeout(() => {
+                                    retomarCaminoHaciaObjetivoPrincipal();
+                                }, 850);
+                            }
+                        } else {
+                            objetivoPrincipalMisionId = null;
+                            esperandoFinTormentaEnRefugio = false;
+                            yaRecargoEnEmergencia = false;
+                        }
+                    } else {
+                        // En zona no segura (ej. llego a su objetivo principal Olympus Mons o Hellas Planitia), queda con el O2/Energia restante
+                        objetivoPrincipalMisionId = null;
+                        esperandoFinTormentaEnRefugio = false;
+                        yaRecargoEnEmergencia = false;
+                        estadoVitalEVA.potMetWth = 192.4;
+                        estadoVitalEVA.potElecWe = 100.8;
+                        estadoVitalEVA.tasaO2Gh = 56.6;
+                        estadoVitalEVA.velMs = 0.0;
+                        actualizarBarrasVitalesHUD();
+                    }
+                }
+            }
+
+            animacionMovimiento = requestAnimationFrame(paso);
+        }
+
+        function fijarComoOrigen(id) {
+            document.getElementById('select-origen').value = id;
+            map.closePopup();
+            alCambiarOrigen();
+        }
+
+        function fijarComoDestino(id) {
+            document.getElementById('select-destino').value = id;
+            map.closePopup();
+            iniciarViajeWaze(false);
+        }
+
+        function intercambiarOrigenDestino() {
+            const s1 = document.getElementById('select-origen');
+            const s2 = document.getElementById('select-destino');
+            const temp = s1.value;
+            s1.value = s2.value;
+            s2.value = temp;
+            alCambiarOrigen();
+        }
+
+        // =====================================================================
+        // PARTE 8: TRANSICION 3D <-> 2D CON CLIC ZOOM (SIN MOVER AL MUNECO)
+        // =====================================================================
+        function encuadrarRutaYOrigenDestino() {
+            const pad = obtenerPaddingMapaResponsivo();
+            if (planDeViajeActual && planDeViajeActual.waypoints && planDeViajeActual.waypoints.length >= 2) {
+                map.fitBounds(L.latLngBounds(planDeViajeActual.waypoints), {
+                    paddingTopLeft: pad.paddingTopLeft,
+                    paddingBottomRight: pad.paddingBottomRight,
+                    maxZoom: 4
+                });
+            } else {
+                const coordsEsenciales = UBICACIONES_PRINCIPALES.map(u => [u.lat_central, u.lon_central]);
+                map.fitBounds(L.latLngBounds(coordsEsenciales), {
+                    paddingTopLeft: pad.paddingTopLeft,
+                    paddingBottomRight: pad.paddingBottomRight,
+                    maxZoom: 4
+                });
+            }
+        }
+
+        function descenderASuperficie(lat = 25.0, lng = -135.0) {
+            if (!enVista3D) return;
+            enVista3D = false;
+
+            const latLimitada = Math.max(-55, Math.min(60, lat));
+            const lngLimitada = Math.max(-180, Math.min(135, lng));
+
+            globoMarte.controls().autoRotate = false;
+            globoMarte.pointOfView({lat: latLimitada, lng: lngLimitada, altitude: 0.32}, 850);
+
+            encuadrarRutaYOrigenDestino();
+
+            document.getElementById('marca-trek').style.opacity = '0';
+            setTimeout(() => {
+                contenedorGlobo.classList.add('oculto');
+                const barraTrek = document.getElementById('barra-telemetria-trek');
+                if (barraTrek) barraTrek.classList.add('visible');
+                map.invalidateSize();
+                encuadrarRutaYOrigenDestino();
+                renderizarNomenclaturaMapa2D();
+            }, 500);
+
+            document.getElementById('estado-vista').innerText = 'MAPA TACTICO 2D';
+            document.getElementById('btn-alternar').innerText = ' VOLVER A ORBITA 3D ';
+        }
+
+        function volverAOrbita() {
+            enVista3D = true;
+            contenedorGlobo.classList.remove('oculto');
+            const barraTrek = document.getElementById('barra-telemetria-trek');
+            if (barraTrek) barraTrek.classList.remove('visible');
+            document.getElementById('marca-trek').style.opacity = '0.94';
+
+            const pos = marcadorAstronauta.getLatLng();
+            globoMarte.pointOfView({lat: pos.lat, lng: pos.lng, altitude: 2.0}, 950);
+            globoMarte.controls().autoRotate = true;
+            actualizarNomenclaturaGlobo3D();
+
+            document.getElementById('estado-vista').innerText = 'ORBITA 3D';
+            document.getElementById('btn-alternar').innerText = '[ IR A MAPA TACTICO 2D ]';
+        }
+
+        function alternarVista() {
+            if (enVista3D) {
+                const pos = marcadorAstronauta.getLatLng();
+                descenderASuperficie(pos.lat, pos.lng);
+            } else {
+                volverAOrbita();
+            }
+        }
+
+        inicializarControlesWaze();
+    </script>
+</body>
+
+</html>
