@@ -37,25 +37,6 @@
 
 ---
 
-## 📌 Table of Contents
-
-- [Live Cloud Deployment](#-live-cloud-deployment-render)
-- [About the Project](#-about-the-project)
-- [The Challenge](#-the-challenge)
-- [Core Features](#-core-features)
-- [System Architecture](#-system-architecture)
-- [NASA Data Used](#️-nasa-data-used)
-- [Martian Regions Modeled](#-martian-regions-modeled)
-- [The A\* Pathfinding Engine](#-the-a-pathfinding-engine)
-- [MEIS Physiological Model](#-meis-physiological-model--plss-suit-parameters)
-- [Screenshots](#-screenshots)
-- [Deployment & Local Execution](#-deployment--local-execution)
-- [Project Structure](#-project-structure)
-- [Team HORIZON.exe](#-team-horizonexe)
-- [License & Acknowledgements](#-license--acknowledgements)
-
----
-
 ## 🚀 About the Project
 
 **ARES-PATH** is an interactive Mars tactical navigation and survival system built by **HORIZON.exe** for the NASA Space Apps Challenge 2026. Deployed as a full-stack cloud web application on **Render**, it empowers astronauts and mission planners to:
